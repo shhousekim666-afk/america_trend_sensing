@@ -50,7 +50,10 @@ def cmd_recommend():
     print("=" * 60)
     print(f"  스탠스 : {r['stance']}")
     print(f"  지역/스타일/통화 : {r['region']} | {r['style']} | {r['currency']}")
-    print(f"\n  ▶ 지수 ETF : " + ", ".join(f"{x['symbol']}({x['name']})" for x in r["index"]))
+    print(f"\n  ▶ 자산배분 바스켓 (총 주식비중 {r.get('equity_pct')}%)")
+    for x in r["index"]:
+        trend = "▲" if x.get("above_ma200") else "▽"
+        print(f"      {x['symbol']:5} {x['name']:22} {x['asset']:5} 목표 {x['weight']:>2}%  6M {x.get('mom6m')}% {trend}200DMA")
     print(f"\n  ▶ 섹터 ETF (6M 모멘텀 랭킹)")
     for s in r["sectors"]:
         print(f"      {s['symbol']:5} {s['name']:28} 6M {s['mom6m']}%")
@@ -59,12 +62,13 @@ def cmd_recommend():
     for i, s in enumerate(r["stocks"], 1):
         from .recommend import _fmt_cap
         cap = _fmt_cap(s.get("mcap"))
+        hot = " ⚠과열" if s.get("overheat") else ""
         if "total" in s:
             score = (f"종합 {s['final']} (V{s['value']}/M{s['momentum']}/D{s['dividend']}) "
-                     f"시총 {cap} ROE {s.get('roe')}% 6M {s.get('mom6m')}%")
+                     f"시총 {cap} 6M {s.get('mom6m')}% 이격 {s.get('dist200')}%")
         else:
-            score = f"점수 {s['final']} 6M {s.get('mom6m')}% 변동성 {s.get('vol')}% 시총 {cap}"
-        print(f"      {i:2}. {s['symbol']:6} {s['name']:24} {s['gics']:14} {score}")
+            score = f"점수 {s['final']} 6M {s.get('mom6m')}% 시총 {cap} 이격 {s.get('dist200')}%"
+        print(f"      {i:2}. {s['symbol']:6} {s['name']:22} {s['gics']:12} {score}{hot}")
     print()
 
 

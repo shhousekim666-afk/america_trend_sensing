@@ -3,8 +3,23 @@
 
   "index_etfs": {
     "SPY": "S&P500", "QQQ": "NASDAQ100(대형성장/메가캡)",
-    "IWM": "러셀2000(중소형)", "DIA": "다우존스(대형가치/방어)"
+    "IWM": "러셀2000(중소형)", "DIA": "다우존스(대형가치/방어)",
+    "EFA": "선진국 주식(DM ex-US)", "EEM": "신흥국 주식(EM)",
+    "TLT": "미국 장기국채(20년+)", "GLD": "금", "SHY": "미국 단기국채(현금성)"
   },
+  "safe_assets": ["TLT", "GLD", "SHY"],
+
+  "_index_basket_comment": "국면별 자산배분 바스켓(합=100). 총 주식비중을 RISK 베타(strategy.py: 회복/성장 1.0, 둔화 0.6, 침체 0.25)에 맞춰 노출 — 이 시스템의 핵심 가치(주식비중 타이밍)를 화면에 드러냄. 지역(EFA/EEM)은 작게(플레이북 실행 표현), 안전자산(TLT/GLD/SHY)은 침체로 갈수록 증가.",
+  "regime_index_basket": {
+    "recovery":  {"QQQ": 45, "SPY": 30, "EFA": 15, "GLD": 5, "SHY": 5},
+    "growth":    {"SPY": 35, "IWM": 20, "EEM": 15, "EFA": 10, "GLD": 10, "SHY": 10},
+    "slowdown":  {"SPY": 25, "DIA": 25, "EFA": 5, "TLT": 25, "GLD": 15, "SHY": 5},
+    "recession": {"QQQ": 12, "SPY": 13, "TLT": 35, "GLD": 20, "SHY": 20},
+    "transition":{"SPY": 30, "EFA": 10, "TLT": 20, "GLD": 15, "SHY": 25}
+  },
+
+  "_overheat_comment": "종목 과열 판정(투자전문가 권고). 200DMA 이격도 1순위, 52주위치/RSI 보조. 탈락 없이 경고배지 + 성장 국면(Take-Profit)에서만 감점.",
+  "overheat": {"dist200_warn": 0.20, "pos52w_warn": 0.92, "rsi_warn": 70, "growth_penalty": 10},
 
   "sector_etfs": {
     "XLK": "정보기술(IT-SW/HW, 반도체)",

@@ -349,11 +349,19 @@ def build(out_path=None):
     bt_curves = valid.get("strategy", {}).get("curves", {})
     eff_by_id = {p["id"]: p for p in explain.get("per", [])}
 
+    def _hot_badge(m):
+        return m.replace("⚠과열", '<span style="color:#ef4444;font-weight:700">⚠과열</span>')
     stock_rows = "".join(
         f'<tr><td>{s["rank"]}</td><td class="sym">{s["symbol"]}</td>'
         f'<td><b>{s["name"]}</b></td><td>{s["gics_kr"]} · <span class="sub">{s["sub"]}</span></td>'
-        f'<td class="mtr">{s["metric"]}</td><td class="dsc">{s["desc"]}</td></tr>'
+        f'<td class="mtr">{_hot_badge(s["metric"])}</td><td class="dsc">{s["desc"]}</td></tr>'
         for s in stocks_detail)
+
+    # 자산배분 바스켓 총 주식비중(현재 국면)
+    _breg = reg.get("regime")
+    _basket = uni.get("regime_index_basket", {}).get(_breg, {})
+    _safe = set(uni.get("safe_assets", []))
+    equity_pct = sum(w for e, w in _basket.items() if e not in _safe)
 
     # 영상 슬라이드 이미지 (상대경로 — 프로젝트 루트)
     imgs = [("경기 국면 판단 기준 + 4국면 흐름", "../IMG_2127.PNG"),
@@ -499,7 +507,9 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <h2>투자 추천 — {reg.get('regime_kr')} 국면</h2>
 <p class="cap">국면 → 유리 섹터 → 모멘텀 랭킹. 음수(빨강)는 이론상 유리 섹터라도 현재 약세임을 뜻함.</p>
 <div class="grid">
-  <div class="card"><h4>지수 ETF</h4><table>{rec_rows('index')}</table></div>
+  <div class="card"><h4>자산배분 바스켓 <span style="color:#22c55e">· 총 주식비중 {equity_pct}%</span></h4>
+    <p class="cap" style="margin:2px 0 8px">국면별 주식/지역/안전자산 목표비중. 이 시스템의 핵심 = '얼마나 위험을 질까'(주식비중).</p>
+    <table>{rec_rows('index')}</table></div>
   <div class="card"><h4>섹터 ETF (6M 모멘텀순)</h4>{sector_bars}</div>
 </div>
 <div class="card" style="margin-top:16px">

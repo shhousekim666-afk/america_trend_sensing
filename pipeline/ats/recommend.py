@@ -35,10 +35,19 @@ def _etf_momentum_from_db(session, symbols):
     return out
 
 
+def _rsi(s, n=14):
+    d = s.diff()
+    up = d.clip(lower=0).rolling(n).mean()
+    dn = (-d.clip(upper=0)).rolling(n).mean()
+    rs = up / dn.replace(0, np.nan)
+    v = (100 - 100 / (1 + rs)).iloc[-1]
+    return round(float(v), 0) if pd.notna(v) else None
+
+
 def _stock_factors(symbols):
-    """개별종목 6M 모멘텀(%) + 변동성(연율%). yfinance 배치."""
+    """개별종목 6M 모멘텀·변동성 + 과열지표(200DMA 이격도·52주위치·RSI). yfinance 배치."""
     import yfinance as yf
-    df = yf.download(symbols, period="8mo", progress=False, auto_adjust=True, threads=True)
+    df = yf.download(symbols, period="14mo", progress=False, auto_adjust=True, threads=True)
     if df is None or df.empty:
         return pd.DataFrame()
     close = df["Close"] if "Close" in df else df
@@ -49,8 +58,31 @@ def _stock_factors(symbols):
             continue
         mom6 = (s.iloc[-1] / s.iloc[-1 - min(_TRADING_6M, len(s) - 1)] - 1) * 100
         vol = s.pct_change().std() * np.sqrt(252) * 100
-        rows.append({"symbol": sym, "mom6m": round(float(mom6), 1), "vol": round(float(vol), 1)})
+        ma200 = s.tail(200).mean()
+        dist200 = s.iloc[-1] / ma200 - 1 if ma200 else None              # 200DMA 이격도
+        win = s.tail(252)
+        rng = win.max() - win.min()
+        pos52 = (s.iloc[-1] - win.min()) / rng if rng else 0.5           # 52주 위치(0~1)
+        rows.append({"symbol": sym, "mom6m": round(float(mom6), 1), "vol": round(float(vol), 1),
+                     "dist200": round(float(dist200) * 100, 1) if dist200 is not None else None,
+                     "pos52": round(float(pos52), 2), "rsi": _rsi(s)})
     return pd.DataFrame(rows)
+
+
+def _index_metrics(session, symbols):
+    """지수 ETF 6M 모멘텀 + 200DMA 상회 여부(DB 종가)."""
+    out = {}
+    for sym in symbols:
+        closes = [r[0] for r in session.execute(
+            select(MarketPrice.close).where(MarketPrice.symbol == sym).order_by(MarketPrice.obs_date)
+        ).all()]
+        if len(closes) < 60:
+            continue
+        mom = (closes[-1] / closes[-1 - _TRADING_6M] - 1) * 100 if len(closes) > _TRADING_6M else None
+        ma200 = sum(closes[-200:]) / min(200, len(closes))
+        out[sym] = {"mom6m": round(mom, 1) if mom is not None else None,
+                    "above_ma200": bool(closes[-1] > ma200)}
+    return out
 
 
 def _market_caps(symbols):
@@ -116,7 +148,19 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
     size_tilt = uni.get("regime_size_tilt", {}).get(regime, 0.3)
 
     with SessionLocal() as session:
-        index_recs = [{"symbol": s, "name": uni["index_etfs"].get(s, "")} for s in pb.get("index_pref", [])]
+        # 지수 = 국면별 자산배분 바스켓(주식+지역+안전자산) + 200DMA·모멘텀·목표비중
+        basket = uni.get("regime_index_basket", {}).get(regime, {})
+        safe = set(uni.get("safe_assets", []))
+        imx = _index_metrics(session, list(basket))
+        index_recs = []
+        for etf, wt in sorted(basket.items(), key=lambda x: -x[1]):
+            m = imx.get(etf, {})
+            index_recs.append({
+                "symbol": etf, "name": uni["index_etfs"].get(etf, ""), "weight": wt,
+                "asset": "안전자산" if etf in safe else "주식",
+                "mom6m": m.get("mom6m"), "above_ma200": m.get("above_ma200"),
+            })
+        equity_pct = sum(wt for etf, wt in basket.items() if etf not in safe)
 
         # 섹터 ETF 모멘텀 랭킹
         sec_syms = pb.get("sector_etfs", [])
@@ -145,6 +189,22 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
         cand = fac.head(_CANDIDATE_CAP)["symbol"].tolist()
         mom_map = dict(zip(fac["symbol"], fac["mom6m"]))
         vol_map = dict(zip(fac["symbol"], fac["vol"]))
+        dist_map = dict(zip(fac["symbol"], fac["dist200"]))
+        pos_map = dict(zip(fac["symbol"], fac["pos52"]))
+        rsi_map = dict(zip(fac["symbol"], fac["rsi"]))
+        ohc = uni.get("overheat", {})
+        gp = ohc.get("growth_penalty", 10)
+        dist_z = _zmap({k: v for k, v in dist_map.items() if v is not None})  # 이격도 z(과열 강도)
+
+        def _hot(sym):  # 과열: 200DMA 이격도 OR 52주위치 OR RSI
+            d, p, rv = dist_map.get(sym), pos_map.get(sym), rsi_map.get(sym)
+            return bool((d is not None and d > ohc.get("dist200_warn", 0.2) * 100)
+                        or (p is not None and p > ohc.get("pos52w_warn", 0.92))
+                        or (rv is not None and rv > ohc.get("rsi_warn", 70)))
+
+        def _oh_fields(sym):
+            return {"dist200": dist_map.get(sym), "pos52": pos_map.get(sym),
+                    "rsi": rsi_map.get(sym), "overheat": _hot(sym)}
 
         # (A) trading_america 펀더멘털 3팩터 + 시총 틸트 (기본)
         rows = []
@@ -161,6 +221,8 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
                         continue
                     total = float(r.get("total_score", 0))
                     final = total + size_tilt * size_z.get(sym, 0) * 10  # 시총 틸트(±~14점)
+                    if regime == "growth":
+                        final -= gp * max(0.0, dist_z.get(sym, 0))  # 과열 강도 비례 감점(Take-Profit)
                     rows.append({
                         "symbol": sym, "name": cmap[sym]["name"], "gics": cmap[sym]["gics"],
                         "related_etf": gics_to_etf.get(cmap[sym]["gics"], ""),
@@ -170,7 +232,7 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
                         "dividend": round(float(r.get("dividend_score", 0)), 1),
                         "mcap": r.get("market_cap"), "per": _r1(r.get("trailing_per")),
                         "roe": _pct(r.get("roe")), "divy": _pct(r.get("div_yield")),
-                        "mom6m": mom_map.get(sym),
+                        "mom6m": mom_map.get(sym), **_oh_fields(sym),
                     })
 
         # (B) 폴백: 모멘텀/저변동성 + 시총 복합
@@ -184,11 +246,13 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
                 if sym not in cmap:
                     continue
                 final = base_z.get(sym, 0) + size_tilt * size_z.get(sym, 0)
+                if regime == "growth":
+                    final -= 0.4 * max(0.0, dist_z.get(sym, 0))  # 과열 강도 비례 감점(z-스케일)
                 rows.append({
                     "symbol": sym, "name": cmap[sym]["name"], "gics": cmap[sym]["gics"],
                     "related_etf": gics_to_etf.get(cmap[sym]["gics"], ""),
                     "final": round(final, 2), "mom6m": mom_map.get(sym),
-                    "vol": vol_map.get(sym), "mcap": caps.get(sym),
+                    "vol": vol_map.get(sym), "mcap": caps.get(sym), **_oh_fields(sym),
                 })
 
         rows.sort(key=lambda x: x["final"], reverse=True)
@@ -202,6 +266,7 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
         "stock_factor": pb.get("stock_factor", ""), "stock_metric": metric,
         "stock_engine": stock_engine, "size_tilt": size_tilt,
         "stock_sectors": [c["symbol"] for c in chosen],
+        "equity_pct": equity_pct,
         "index": index_recs, "sectors": sectors, "stocks": stocks,
     }
     _persist(result)
@@ -221,19 +286,25 @@ def _persist(res: dict) -> None:
     today = date.fromisoformat(res["as_of"]) if res.get("as_of") else date.today()
     with SessionLocal() as session:
         session.execute(delete(Recommendation))  # 추천은 항상 '현재 1세트'만 유지
-        items = [Recommendation(obs_date=today, regime=res["regime"], layer="index",
-                                symbol=r["symbol"], rank=0, rationale=r["name"]) for r in res["index"]]
+        items = []
+        for i, r in enumerate(res["index"]):
+            trend = "200DMA↑" if r.get("above_ma200") else "200DMA↓"
+            items.append(Recommendation(
+                obs_date=today, regime=res["regime"], layer="index", symbol=r["symbol"], rank=i,
+                rationale=f"{r['name']} · {r['asset']} · 목표 {r['weight']}% · 6M {r.get('mom6m')}% · {trend}"))
         for i, s in enumerate(res["sectors"]):
             items.append(Recommendation(obs_date=today, regime=res["regime"], layer="sector",
                                         symbol=s["symbol"], rank=i + 1,
                                         rationale=f"{s['name']} 6M모멘텀 {s['mom6m']}%"))
         for i, s in enumerate(res["stocks"]):
             cap = _fmt_cap(s.get("mcap"))
+            hot = " ⚠과열" if s.get("overheat") else ""
+            oh = f"이격 {s.get('dist200')}% · RSI {s.get('rsi')}"
             if "total" in s:
                 detail = (f"종합 {s['final']} (V{s['value']}/M{s['momentum']}/D{s['dividend']})"
-                          f" · 시총 {cap} · ROE {s.get('roe')}% · 6M {s.get('mom6m')}%")
+                          f" · 시총 {cap} · ROE {s.get('roe')}% · 6M {s.get('mom6m')}% · {oh}{hot}")
             else:
-                detail = f"점수 {s['final']} · 6M {s.get('mom6m')}% 변동성 {s.get('vol')}% · 시총 {cap}"
+                detail = f"점수 {s['final']} · 6M {s.get('mom6m')}% 변동성 {s.get('vol')}% · 시총 {cap} · {oh}{hot}"
             items.append(Recommendation(obs_date=today, regime=res["regime"], layer="ticker",
                                         symbol=s["symbol"], rank=i + 1,
                                         rationale=f"{s['name']} [{s['related_etf']}] {detail}"))

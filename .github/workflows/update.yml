@@ -2,6 +2,8 @@ name: Update & Deploy Dashboard
 
 on:
   workflow_dispatch:        # 수동 실행
+  push:
+    branches: [main]        # 코드 변경 시 재배포
   schedule:
     - cron: "0 13 25 * *"   # 매월 25일 22:00 KST (월급날·데이터 발표 후) — 국면 갱신
     - cron: "0 13 * * 1"    # 매주 월요일 22:00 KST — 가격/추천 갱신
