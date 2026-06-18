@@ -1,0 +1,8 @@
+# 전체 의존성 (CI/배포 자립 실행용)
+SQLAlchemy>=2.0
+PyMySQL>=1.1          # 운영 MariaDB 사용 시 (개발/CI 는 SQLite)
+pandas>=2.0
+numpy>=1.26
+requests>=2.31
+yfinance>=0.2.40
+lxml>=5.0            # S&P500 위키 파싱(read_html)

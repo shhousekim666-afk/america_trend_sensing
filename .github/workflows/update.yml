@@ -1,0 +1,49 @@
+name: Update & Deploy Dashboard
+
+on:
+  workflow_dispatch:        # 수동 실행
+  schedule:
+    - cron: "0 13 25 * *"   # 매월 25일 22:00 KST (월급날·데이터 발표 후) — 국면 갱신
+    - cron: "0 13 * * 1"    # 매주 월요일 22:00 KST — 가격/추천 갱신
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r pipeline/requirements.txt
+      - name: Run pipeline (collect → regime → recommend → report)
+        working-directory: pipeline
+        run: python -m ats.cli update
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp pipeline/report.html _site/index.html
+          cp IMG_2127.PNG IMG_2129.PNG IMG_2130.PNG _site/ 2>/dev/null || true
+          sed -i 's#\.\./IMG_#IMG_#g' _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,24 @@
+# 시크릿·외부 프로젝트(절대 커밋 금지)
+.env
+**/.env
+trading_america/
+trading_system/
+
+# 파이썬
+**/.venv/
+**/__pycache__/
+*.pyc
+
+# 생성물(파이프라인이 재생성)
+pipeline/ats.db
+pipeline/*.db
+pipeline/te_charts/
+pipeline/report.html
+pipeline/logs/
+**/logs/
+*.log
+
+# 로컬/에디터
+.claude/
+.DS_Store
+*.zip

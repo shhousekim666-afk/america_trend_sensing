@@ -1,0 +1,114 @@
+{
+  "_comment": "국면별 자산/업종 로테이션 플레이북 + 추천 유니버스. 지침 §4/§5, youtube_report.md §3/§4 근거.",
+
+  "index_etfs": {
+    "SPY": "S&P500", "QQQ": "NASDAQ100(대형성장/메가캡)",
+    "IWM": "러셀2000(중소형)", "DIA": "다우존스(대형가치/방어)"
+  },
+
+  "sector_etfs": {
+    "XLK": "정보기술(IT-SW/HW, 반도체)",
+    "XLC": "커뮤니케이션(통신/미디어&엔터)",
+    "XLY": "자유소비재",
+    "XLP": "필수소비재",
+    "XLF": "금융",
+    "XLI": "산업재(운송 포함)",
+    "XLE": "에너지",
+    "XLB": "소재",
+    "XLV": "헬스케어(바이오/의료기기/제약)",
+    "XLU": "유틸리티",
+    "XLRE": "리츠/부동산"
+  },
+
+  "_bridge_comment": "trading_america(별도 프로젝트)의 종목 스코어링 엔진 score_all(df, strategy_weights=...) 에 넘길 국면별 가중치. value/momentum/dividend 합=1.0. 회복/성장=모멘텀↑, 둔화/침체=가치·배당↑. 섹터가 정해진 뒤 개별종목 선별에 사용.",
+  "regime_to_strategy_weights": {
+    "recovery":  {"value": 0.30, "momentum": 0.55, "dividend": 0.15},
+    "growth":    {"value": 0.35, "momentum": 0.50, "dividend": 0.15},
+    "slowdown":  {"value": 0.35, "momentum": 0.20, "dividend": 0.45},
+    "recession": {"value": 0.45, "momentum": 0.20, "dividend": 0.35},
+    "transition":{"value": 0.33, "momentum": 0.34, "dividend": 0.33}
+  },
+
+  "_size_tilt_comment": "국면별 시가총액 선호(종목 랭킹에 가산). 양수=대형주 선호, 0=중립. 회복/둔화/침체는 대형·메가캡 방어, 성장은 중소형 베타라 중립~약. 지침 §3/§5 플레이북 스타일과 정합.",
+  "regime_size_tilt": {
+    "recovery": 0.4, "growth": 0.15, "slowdown": 0.4, "recession": 0.7, "transition": 0.3
+  },
+
+  "gics_to_etf": {
+    "Information Technology": "XLK",
+    "Communication Services": "XLC",
+    "Consumer Discretionary": "XLY",
+    "Consumer Staples": "XLP",
+    "Financials": "XLF",
+    "Industrials": "XLI",
+    "Energy": "XLE",
+    "Materials": "XLB",
+    "Health Care": "XLV",
+    "Utilities": "XLU",
+    "Real Estate": "XLRE"
+  },
+
+  "regime_playbook": {
+    "recovery": {
+      "label": "회복",
+      "stance": "Risk-On, 베타 확대",
+      "region": "DM>EM, 미국>Non-US",
+      "index_pref": ["QQQ", "SPY"],
+      "index_note": "NASDAQ>S&P, 대형>중소형",
+      "style": "대형 성장주(Growth+Momentum)",
+      "currency": "USD 우위(강)",
+      "sectors_kr": ["IT-SW", "반도체", "서비스", "커뮤니케이션", "자유소비재", "운송"],
+      "sector_etfs": ["XLK", "XLC", "XLY"],
+      "stock_gics": ["Information Technology", "Communication Services", "Consumer Discretionary"],
+      "stock_metric": "momentum",
+      "stock_factor": "고성장·어닝모멘텀·대형주",
+      "examples": ["NVIDIA", "M7"]
+    },
+    "growth": {
+      "label": "성장",
+      "stance": "Take-Profit, 과열 비중 축소 준비",
+      "region": "EM 선호, Non-US 아웃퍼폼",
+      "index_pref": ["IWM", "SPY"],
+      "index_note": "러셀2000 모멘텀, 시클리컬 주도",
+      "style": "경기민감(Cyclical)+중소형",
+      "currency": "USD 약세",
+      "sectors_kr": ["금융", "산업재", "에너지", "소재", "리츠", "미디어&엔터", "IT-HW", "헬스케어(바이오/의료기기)"],
+      "sector_etfs": ["XLF", "XLI", "XLE", "XLB", "XLRE", "XLV", "XLK"],
+      "stock_gics": ["Financials", "Industrials", "Energy", "Materials"],
+      "stock_metric": "momentum",
+      "stock_factor": "경기민감·중소형 베타·매출성장",
+      "examples": ["금융", "산업재(방산/전력기기)", "에너지/소재", "한국 반도체·2차전지(미국 성장→이머징 주문)"]
+    },
+    "slowdown": {
+      "label": "둔화",
+      "stance": "위험자산 분할매수(DCA) 시작, 하방경직성 확보",
+      "region": "DM>EM, 미국 회귀",
+      "index_pref": ["DIA", "SPY"],
+      "index_note": "다우>S&P>NASDAQ 방어력",
+      "style": "배당·방어·가치주",
+      "currency": "USD 강세",
+      "sectors_kr": ["통신", "헬스케어(제약)", "필수소비재", "유틸리티"],
+      "sector_etfs": ["XLU", "XLP", "XLV", "XLC"],
+      "stock_gics": ["Utilities", "Consumer Staples", "Health Care", "Communication Services"],
+      "stock_metric": "low_vol",
+      "stock_factor": "고배당·저변동성·이익가시성(Quality)",
+      "examples": ["제약(Merck)", "통신(SKT)", "필수소비재", "유틸리티"],
+      "exit_trigger": "선행 하락 + 동행 peak-out 동시 → 위험자산 청산(지침 §1.5.2)"
+    },
+    "recession": {
+      "label": "침체",
+      "stance": "안전자산·최상위 퀄리티 압축, 다음 주기 포지션 완료",
+      "region": "미국·DM 극단 안전쏠림",
+      "index_pref": ["QQQ", "SPY"],
+      "index_note": "MegaCap 핵심주 중심 압축",
+      "style": "퀄리티(저부채·고유동성·초대형)",
+      "currency": "USD 초강세",
+      "sectors_kr": ["MegaCap 핵심주", "유틸리티", "통신"],
+      "sector_etfs": ["XLU", "XLC"],
+      "stock_gics": ["Utilities", "Communication Services", "Consumer Staples"],
+      "stock_metric": "low_vol",
+      "stock_factor": "저부채·고유동성·꾸준한 매출 메가캡",
+      "examples": ["M7급 저부채 메가캡", "유틸리티", "통신"]
+    }
+  }
+}
