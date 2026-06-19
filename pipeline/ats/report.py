@@ -363,12 +363,19 @@ def _exec_guide(uni, reg):
     basket = uni["regime_index_basket"]
     safe = set(uni.get("safe_assets", []))
     cur = reg.get("regime", "")
+    # 영상(NH 백찬규) 지역·스타일 로테이션 프레임 — 가이드 '주식 틸트' 열
+    TILT = {
+        "recovery":  "미국 대형성장 QQQ·S&P (DM&gt;EM · USD강세)",
+        "growth":    "중소형·시클리컬 + 이머징·Non-US IWM·EEM·EFA, 한국 (USD약세)",
+        "slowdown":  "배당·방어·가치 DIA + 채권 TLT (DM 회귀)",
+        "recession": "안전자산 TLT·GLD + MegaCap 퀄리티 (USD초강세)",
+    }
     rows = ""
     for k in ("recovery", "growth", "slowdown", "recession"):
         b = basket.get(k, {})
         eq = sum(v for s, v in b.items() if s not in safe)
         beta = RISK.get(k, 0.5)
-        tilt = "QQQ 고베타(상승 극대화)" if k in RISK_ON else ("SPY·DIA 저베타 + 채권" if k == "slowdown" else "안전자산 압축(TLT/GLD)")
+        tilt = TILT[k]
         filt = "무시 — 신호 신뢰, 풀투자" if k in RISK_ON else "적용 — 10M MA 이탈 시 추가 축소"
         c = REGIME_COLOR[k]
         on = k == cur
@@ -386,12 +393,12 @@ def _exec_guide(uni, reg):
   </table></div>
   <ol class="prose" style="margin:12px 0 0;padding-left:20px">
    <li><b>주식비중 다이얼</b> — 현재 <b style="color:#22c55e">{reg.get('regime_kr')} → 주식 {cur_eq}%</b>로 맞춘다. 회복·성장엔 공격적으로, 둔화·침체엔 안전자산으로 줄인다(위 표).</li>
-   <li><b>고베타 틸트</b> — 좋은 국면(회복·성장)엔 주식 몫을 <b>QQQ(나스닥)</b> 중심으로 채워 상승을 더 먹는다. 방어 국면엔 SPY·DIA + 채권(TLT)·금(GLD).</li>
+   <li><b>지역·스타일 로테이션 (영상 프레임)</b> — <b>회복</b>은 미국 대형성장(QQQ·S&P, DM&gt;EM). <b>성장</b>은 약달러를 타고 <b>이머징·Non-US·중소형(IWM·EEM, 한국 등 라이징 마켓)</b>·시클리컬이 주도. <b>둔화</b>는 배당·방어·가치(DIA)로 회귀. <b>침체</b>는 안전자산·MegaCap 퀄리티.</li>
    <li><b>추세 안전판</b> — SPY가 10개월 이동평균 <b>위</b>면 비중 유지. <b>아래로 깨지고 + 방어 국면</b>이면 주식을 추가로 줄인다. 좋은 국면에선 일시 하락을 무시(상승 신뢰)해 상승장을 놓치지 않는다.</li>
    <li><b>리밸런싱 규율</b> — 점검은 월 1회 + 국면 전환 즉시. 목표비중과 <b>±5%p 이상</b> 벌어진 항목만 손본다(과잉매매·세금 방지).</li>
    <li><b>과열 관리</b> — 종목의 <b>⚠과열</b>(200DMA 이격 20%↑·RSI 70↑)은 신규진입을 미루고 분할 익절. 좋은 국면이라도 과열 종목엔 비중 상한을 둔다.</li>
   </ol>
-  <p class="note" style="margin-top:8px">⚠ 교육용. 레버리지·개별종목 집중은 변동성을 키운다. 위 비중은 위험중립 기준 예시이며 본인 위험성향에 맞춰 조절.</p>
+  <p class="note" style="margin-top:8px">⚠ <b>영상 프레임 vs 백테스트 실증</b>: 영상은 성장 국면을 '이머징(한국 등) 주도'로 본다. 그러나 지난 20년은 <b>미국 예외주의</b>로, 성장에 이머징을 적용하면 과거 CAGR이 <b>10.2%→5.6%</b>로 반토막났다. 그래서 검증된 코어는 미국 중심을 유지하고, <b>이머징·Non-US 확대는 달러 약세가 실제 확인될 때 조건부로</b> 권한다(영상 통화 로직 존중). 위 비중은 위험중립 예시, 본인 성향에 맞춰 조절. 교육용.</p>
 </div>"""
 
 
