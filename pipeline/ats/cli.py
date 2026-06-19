@@ -146,14 +146,18 @@ def cmd_report():
 
 
 def cmd_update():
-    """주기 실행/CI용 — 전체 파이프라인 일괄. 각 단계 독립 실패 허용(리포트는 항상 시도)."""
+    """주기 실행/CI용 — 전체 파이프라인 일괄. 각 단계 독립 실패 허용(리포트는 항상 시도).
+    데이터 품질 CRITICAL 또는 단계 예외 발생 시 비정상 종료(exit 1)로 CI에 알림(C2)."""
     import traceback
     from .collect import run_all
     from .regime import persist_history
     from .recommend import recommend
     from .report import build
-    no_open = True  # CI: 브라우저 자동열기 안 함
-    steps = [("수집", run_all), ("국면저장", persist_history),
+    issues, failed = [], []
+
+    def _collect():
+        issues.extend(run_all())
+    steps = [("수집", _collect), ("국면저장", persist_history),
              ("추천", lambda: recommend()), ("리포트", build)]
     for name, fn in steps:
         try:
@@ -161,7 +165,14 @@ def cmd_update():
         except Exception as e:
             print(f"[update] {name} ✗ {type(e).__name__}: {e}")
             traceback.print_exc()
-    _ = no_open
+            failed.append(name)
+    crit = [i for i in issues if i["level"] == "CRITICAL"]
+    if crit or failed:
+        print(f"\n[update] ⚠ 비정상 종료: 단계실패={failed} · 데이터CRITICAL={len(crit)}건")
+        for i in crit:
+            print(f"   - {i['where']}: {i['msg']}")
+        sys.exit(1)
+    print("[update] 전체 정상 ✓")
 
 
 _CMDS = {"collect": cmd_collect, "regime": cmd_regime, "backtest": cmd_backtest,

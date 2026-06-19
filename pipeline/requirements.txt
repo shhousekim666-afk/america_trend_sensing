@@ -6,3 +6,4 @@ numpy>=1.26
 requests>=2.31
 yfinance>=0.2.40
 lxml>=5.0            # S&P500 위키 파싱(read_html)
+pytest>=8.0          # 핵심 로직 단위 테스트(tests/)

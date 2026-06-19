@@ -12,6 +12,7 @@
 
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pandas as pd
@@ -19,6 +20,19 @@ import pandas as pd
 from .config import load_universe
 
 TA_DIR = Path(os.environ.get("TA_DIR", str(Path(__file__).resolve().parents[2] / "trading_america")))
+
+
+@contextmanager
+def _in_ta_dir():
+    """TA가 상대경로(cache/historical/...)를 쓰므로 CWD를 TA_DIR로 고정.
+    contextmanager로 진입/복원을 보장(예외·조기반환에도 finally 복원).
+    주의: os.chdir는 프로세스 전역 → TA 호출 구간은 단일 스레드에서만 실행할 것."""
+    cwd = os.getcwd()
+    try:
+        os.chdir(TA_DIR)
+        yield
+    finally:
+        os.chdir(cwd)
 
 
 def available() -> bool:
@@ -40,25 +54,24 @@ def pick(regime: str, tickers: list[str], top_n: int = 15, as_of: str | None = N
     """국면 가중치로 TA 스코어링 → TOP N. 실패 시 None."""
     if not available() or not tickers:
         return None
-    cwd = os.getcwd()
     try:
         _ensure_path()
-        os.chdir(TA_DIR)  # TA 가 상대경로(cache/historical/...) 사용 → CWD 고정 필요
-        import logging
-        logging.disable(logging.INFO)
-        from backtest.scoring import score_all  # noqa: E402
-        if as_of:
-            from backtest.features import build_feature_row  # noqa: E402
-            rows = [build_feature_row(t, as_of) for t in tickers]
-        else:
-            from data_collector import fetch_ticker  # noqa: E402
-            rows = [fetch_ticker(t) for t in tickers]
-        rows = [r for r in rows if r]
-        if not rows:
-            return None
-        df = pd.DataFrame(rows)
-        weights = regime_weights(regime)
-        scored = score_all(df, skip_pre_filter=False, strategy_weights=weights, keep_all=True)
+        with _in_ta_dir():
+            import logging
+            logging.disable(logging.INFO)
+            from backtest.scoring import score_all  # noqa: E402
+            if as_of:
+                from backtest.features import build_feature_row  # noqa: E402
+                rows = [build_feature_row(t, as_of) for t in tickers]
+            else:
+                from data_collector import fetch_ticker  # noqa: E402
+                rows = [fetch_ticker(t) for t in tickers]
+            rows = [r for r in rows if r]
+            if not rows:
+                return None
+            df = pd.DataFrame(rows)
+            weights = regime_weights(regime)
+            scored = score_all(df, skip_pre_filter=False, strategy_weights=weights, keep_all=True)
         cols = [c for c in ["ticker", "sector", "total_score", "value_score",
                             "momentum_score", "dividend_score",
                             "market_cap", "trailing_per", "roe", "div_yield", "altman_z"]
@@ -66,5 +79,3 @@ def pick(regime: str, tickers: list[str], top_n: int = 15, as_of: str | None = N
         return scored[cols].reset_index(drop=True)  # 전체 반환(상위 선별은 호출측에서 사이즈틸트 후)
     except Exception:
         return None
-    finally:
-        os.chdir(cwd)

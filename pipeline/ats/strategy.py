@@ -17,11 +17,26 @@ from .config import load_universe
 from .db import SessionLocal
 from .models import MarketPrice
 from .regime import classify_history
+from .sources import fred
 
 RISK = {"recovery": 1.0, "growth": 1.0, "slowdown": 0.6, "recession": 0.25, "transition": 0.5}
-COST = 0.001
+COST = 0.003          # 편도 거래비용: 스프레드+슬리피지 포함 현실화(기존 0.1%는 거래세 수준)
 CASH_MRET = 0.0
 TOPN = 4
+
+
+def _risk_free_monthly(index):
+    """FRED DGS3MO(3개월 국채, 연%) → 월 무위험수익률 Series. Sharpe = 초과수익 기준.
+    네트워크 실패 시 0(보수적, 기존 동작)으로 폴백."""
+    try:
+        pts = fred.fetch("DGS3MO", start_date="2005-01-01")
+        if not pts:
+            return None
+        s = pd.Series({pd.Timestamp(d): v for d, v in pts}).sort_index()
+        s = s.resample("ME").last().ffill() / 100.0 / 12.0  # 연% → 월 단순수익률
+        return s.reindex(index).ffill().fillna(0.0)
+    except Exception:
+        return None
 
 
 def _monthly_prices(session, symbols):
@@ -151,16 +166,17 @@ def _run(idx, rets, mom6, spym, regime_s, spy_off, pb, select_fn, filter_mode="a
     return curve, turns, expo
 
 
-def _stats(curve, label, key):
+def _stats(curve, label, key, rf_m=None):
     s = pd.Series(dict(curve))
     r = s.pct_change().dropna()
     n = len(s)
+    ex = r - rf_m.reindex(r.index).fillna(0.0) if rf_m is not None else r  # 초과수익(무위험 차감)
     return {
         "key": key, "label": label,
         "total_return": round(s.iloc[-1] - 1, 3),
         "cagr": round(s.iloc[-1] ** (12 / n) - 1, 3),
         "mdd": round((s / s.cummax() - 1).min(), 3),
-        "sharpe": round(r.mean() / r.std() * np.sqrt(12), 2) if r.std() else 0,
+        "sharpe": round(ex.mean() / ex.std() * np.sqrt(12), 2) if ex.std() else 0,
         "months": n,
     }
 
@@ -188,6 +204,7 @@ def backtest_strategy(start="2006-01-01") -> dict:
     spym = mom6["SPY"]
     regime_s = hist["regime_s"].reindex(rets.index).ffill()
     idx = rets.index[rets.index >= pd.Timestamp(start)]
+    rf_m = _risk_free_monthly(rets.index)  # Sharpe = 초과수익 기준(무위험수익률 차감)
 
     # 벤치마크: SPY 단순보유(필터·베타 없음)
     bench = []
@@ -197,12 +214,12 @@ def backtest_strategy(start="2006-01-01") -> dict:
             continue
         beq *= (1 + (rets.at[t, "SPY"] if pd.notna(rets.at[t, "SPY"]) else 0))
         bench.append((t, beq))
-    benchmark = _stats(bench, "SPY 단순보유", "benchmark")
+    benchmark = _stats(bench, "SPY 단순보유", "benchmark", rf_m)
 
     variants, curves = [], {"dates": [t.date().isoformat() for t, _ in bench], "benchmark": [round(v, 3) for _, v in bench]}
     for key, label, fn, fmode, ubeta in VARIANTS:
         curve, turns, expo = _run(idx, rets, mom6, spym, regime_s, spy_off, pb, fn, fmode, ubeta)
-        st = _stats(curve, label, key)
+        st = _stats(curve, label, key, rf_m)
         st["ann_turnover"] = round(np.mean(turns) * 12, 2)
         st["avg_exposure"] = round(float(np.mean(expo)), 2)
         st["excess_cagr"] = round(st["cagr"] - benchmark["cagr"], 3)

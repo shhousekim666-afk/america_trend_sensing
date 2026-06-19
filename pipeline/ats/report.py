@@ -358,7 +358,7 @@ def _regime_matrix(explain, reg):
 </div>"""
 
 
-def _exec_guide(uni, reg):
+def _exec_guide(uni, reg, valid=None):
     """수익+방어 균형 전략을 실제로 굴리는 방법 — 국면 다이얼 + 5단계 절차."""
     basket = uni["regime_index_basket"]
     safe = set(uni.get("safe_assets", []))
@@ -381,10 +381,17 @@ def _exec_guide(uni, reg):
                  f'<td style="color:{c};font-weight:700;white-space:nowrap">{KOR[k]}{" ★현재" if on else ""}</td>'
                  f'<td><b>{eq}%</b></td><td>{tilt}</td></tr>')
     cur_eq = sum(v for s, v in basket.get(cur, {}).items() if s not in safe)
+    # 백테스트 수치 동적 추출
+    bt = (valid or {}).get("strategy", {})
+    byk = {v["key"]: v for v in bt.get("variants", [])}
+    bk, bal = byk.get("basket", {}), byk.get("basket_bal", {})
+    perf = (f'CAGR {bk["cagr"]*100:.1f}% · MDD {bk["mdd"]*100:.0f}% · Sharpe {bk["sharpe"]} — SPY 3개 지표 모두 초과'
+            if bk else "백테스트 SPY 초과")
+    bal_perf = (f'CAGR {bal["cagr"]*100:.1f}% / MDD {bal["mdd"]*100:.0f}% / Sharpe {bal["sharpe"]}' if bal else "")
     return f"""
 <div class="card" style="border-color:#22c55e">
   <h4>📋 실행 가이드 — 공격형 권고 바스켓을 직접 굴리는 법</h4>
-  <p class="cap">백테스트가 증명한 전략(<b>CAGR 11.6% · MDD -28% · Sharpe 0.85 — SPY를 3개 지표 모두 초과</b>)을 따라 하는 절차. 핵심은 <b>"종목 고르기"가 아니라 "국면별 주식비중 + QQQ 틸트"</b>.</p>
+  <p class="cap">백테스트가 증명한 전략(<b>{perf}</b>)을 따라 하는 절차. 핵심은 <b>"종목 고르기"가 아니라 "국면별 주식비중 + QQQ 틸트"</b>.</p>
   <div class="tbl-wrap"><table>
    <tr><th>국면</th><th>총 주식비중</th><th>주식 틸트(자산 구성)</th></tr>
    {rows}
@@ -396,7 +403,7 @@ def _exec_guide(uni, reg):
    <li><b>리밸런싱 규율</b> — 점검은 월 1회 + 국면 전환 즉시. 목표비중과 <b>±5%p 이상</b> 벌어진 항목만 손본다(과잉매매·세금 방지).</li>
    <li><b>과열 관리</b> — 종목의 <b>⚠과열</b>(200DMA 이격 20%↑·RSI 70↑)은 신규진입을 미루고 분할 익절. 좋은 국면이라도 과열 종목엔 비중 상한을 둔다.</li>
   </ol>
-  <p class="note" style="margin-top:8px">⚠ <b>영상 프레임 vs 수익</b>: 영상은 성장을 '이머징(한국 등) 주도'로 보지만, 지난 20년 <b>미국 예외주의</b>로 성장에 EM을 전면 적용하면 과거 CAGR이 크게 하락했다. 그래서 SPY 초과를 위해 코어는 <b>미국·QQQ</b>를 유지하고 EM/Non-US는 슬리브로만(약달러 확인 시 확대). 더 안정적인 분산·EM 충실 버전을 원하면 검증탭의 <b>균형형</b>(CAGR 9.5% / MDD -25% / Sharpe 0.78)을 쓰면 된다. 위 비중은 예시, 본인 성향에 맞춰 조절. 교육용.</p>
+  <p class="note" style="margin-top:8px">⚠ <b>영상 프레임 vs 수익</b>: 영상은 성장을 '이머징(한국 등) 주도'로 보지만, 지난 20년 <b>미국 예외주의</b>로 성장에 EM을 전면 적용하면 과거 CAGR이 크게 하락했다. 그래서 SPY 초과를 위해 코어는 <b>미국·QQQ</b>를 유지하고 EM/Non-US는 슬리브로만(약달러 확인 시 확대). 더 안정적인 분산·EM 충실 버전을 원하면 검증탭의 <b>균형형</b>({bal_perf})을 쓰면 된다. 위 비중은 예시, 본인 성향에 맞춰 조절. 교육용.</p>
 </div>"""
 
 
@@ -431,12 +438,33 @@ def _validation_tab(valid):
         bt_html = (
             f'<div class="card"><h4>전략 백테스트 vs SPY — 변형 비교 ({bt["period"]})</h4>'
             f'<div class="tbl-wrap"><table><tr><th>전략</th><th>CAGR</th><th>MDD</th><th>Sharpe</th><th>연회전</th></tr>{rows}</table></div>'
-            f'<p class="cap">비용 편도 {bt["params"]["cost_oneway"]*100}% · 추세필터 {bt["params"]["trend_filter"]}. '
-            f'★=위험조정성과 최적(=권고 바스켓). <b>공격형</b>은 SPY를 CAGR·MDD·Sharpe <b>3개 모두 초과</b>. <b>균형형</b>은 수익은 SPY 아래지만 낙폭이 가장 작다. 섹터선택 변형은 알파 없음(국면 베타로 타는 게 최적).</p>'
+            f'<p class="cap">비용 편도 {bt["params"]["cost_oneway"]*100}%(스프레드·슬리피지 포함) · 추세필터 {bt["params"]["trend_filter"]} · '
+            f'Sharpe는 무위험수익률(3M 국채) 차감한 초과수익 기준. '
+            f'★=위험조정성과 최적(=권고 바스켓). <b>공격형</b>은 SPY를 CAGR·MDD·Sharpe <b>3개 모두 초과</b>. <b>균형형</b>은 수익은 SPY 아래지만 낙폭이 가장 작다. 섹터선택 변형은 알파 없음.</p>'
             f'<canvas id="btChart" height="80"></canvas></div>')
+    # 결론 수치 — 백테스트 결과에서 동적 추출(하드코딩 동기화 문제 제거)
+    byk = {v["key"]: v for v in bt.get("variants", [])} if bt else {}
+    bk, bal, bch = byk.get("basket", {}), byk.get("basket_bal", {}), (bt.get("benchmark", {}) if bt else {})
+
+    def _fmt(d):
+        return (f'CAGR {d.get("cagr",0)*100:.1f}% / MDD {d.get("mdd",0)*100:.0f}% / Sharpe {d.get("sharpe",0)}'
+                if d else "—")
+    concl = (
+        f'<p class="prose"><b>레버리지 없이 SPY를 이긴다.</b> <b>공격형(권고 바스켓)</b>은 좋은 국면(회복·성장)과 둔화까지 '
+        f'고베타 <b>QQQ 중심</b>으로 채워 상승을 먹고, 안전자산(금·채권) 슬리브로 변동성을 잡고, 침체에만 안전자산을 최대화한다 → '
+        f'<b>{_fmt(bk)}</b> 로 SPY(<b>{_fmt(bch)}</b>) 대비 <b>수익·낙폭·효율 모두 우위</b>. '
+        f'더 안정적인 걸 원하면 <b>균형형</b>({_fmt(bal)}, 낙폭 최소)을 선택. (revised 데이터+1M lag, vintage 미적용)</p>')
+    disclosure = (
+        '<div class="card" style="border-color:#f59e0b55"><h4>⚠ 정직 공시 — 초과수익의 출처</h4>'
+        '<p class="cap" style="margin:0">이 초과수익의 <b>상당 부분은 순수 매크로가 아니라 가격 추세추종에서 나온다.</b> '
+        '선행축에 S&P500 주가가 포함돼 "주가↑→회복/성장 판정→주식↑"의 일부 순환이 있다. '
+        '검증(가격 선행지표를 빼고 재백테스트, 2026-06): 공격형이 <b>9.6% / -44% / 0.57</b>로 떨어져 <b>SPY에 진다</b>. '
+        '즉 엣지의 약 절반은 트렌드팔로잉 성격이며 순수 매크로 알파는 제한적이다. '
+        '주가는 정당한 선행지표지만(모든 인베스트먼트 클락이 시장신호 사용), 이 도구의 우위를 "매크로 예측력"으로 과신하면 안 된다.</p></div>')
     return f"""
-<p class="prose"><b>레버리지 없이 SPY를 이긴다.</b> <b>공격형(권고 바스켓)</b>은 좋은 국면(회복·성장)과 둔화까지 고베타 <b>QQQ 중심</b>으로 채워 상승을 먹고, 안전자산(금·채권) 슬리브로 변동성을 잡고, 침체에만 안전자산을 최대화한다 → <b>CAGR 11.6%(&gt;SPY 11.1%) · MDD -28%(&lt;SPY -51%) · Sharpe 0.85(&gt;SPY 0.77)</b>로 <b>수익·낙폭·효율 모두 SPY 우위</b>. 더 안정적인 걸 원하면 <b>균형형</b>(9.5% / -25% / Sharpe 0.78, 낙폭 최소)을 선택. 섹터·종목 선택은 알파가 없어 보조로만 쓴다. (revised 데이터+1M lag 기준, vintage 적용 시 다소 보수화)</p>
+{concl}
 {bt_html}
+{disclosure}
 {nber_html}
 <p class="note">국면 판정 정확도(NBER)와 전략 수익/위험을 분리 검증. '맞히는 것'과 '버는 것'은 별개 — 둘 다 수치로 본다.</p>"""
 
@@ -461,6 +489,14 @@ def build(out_path=None):
     _basket = uni.get("regime_index_basket", {}).get(_breg, {})
     _safe = set(uni.get("safe_assets", []))
     equity_pct = sum(w for e, w in _basket.items() if e not in _safe)
+
+    # 배너 권장 스탠스 1줄 + 잠정/확정 배지(B1/B2)
+    _STANCE = {"recovery": "QQQ 중심 공격", "growth": "QQQ 중심 공격",
+               "slowdown": "방어·배당 + 채권", "recession": "안전자산 최대", "transition": "중립·관망"}
+    stance_short = _STANCE.get(_breg, "중립·관망")
+    prov_badge = ('<span style="background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b;'
+                  'border-radius:20px;padding:1px 9px;font-weight:700;font-size:12px">⚠ 잠정 (3개월 확정 전)</span>'
+                  if reg.get("provisional") else '<span style="color:#22c55e;font-weight:700">✓ 확정</span>')
 
     # 영상 슬라이드 이미지 (상대경로 — 프로젝트 루트)
     imgs = [("경기 국면 판단 기준 + 4국면 흐름", "../IMG_2127.PNG"),
@@ -521,12 +557,13 @@ body{{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:#0b0
 h1{{font-size:21px}} h2{{font-size:15px;color:#93c5fd;margin-top:30px;border-bottom:1px solid #1f2937;padding-bottom:6px}} h3{{font-size:14px}}
 .tabs{{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 8px}}
 .tab-btn{{background:#111827;border:1px solid #1f2937;color:#9ca3af;padding:9px 18px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:600}}
-.tab-btn.on{{background:{rc}22;border-color:{rc};color:#fff}}
+.tab-btn.on{{background:#1e3a5f;border-color:#3b82f6;color:#fff}}
 .tab{{display:none}} .tab.on{{display:block}}
 .banner{{background:linear-gradient(135deg,{rc}22,#111827);border:1px solid {rc};border-radius:14px;padding:20px 24px;display:flex;gap:28px;align-items:center;flex-wrap:wrap}}
 .banner .rg{{font-size:34px;font-weight:700;color:{rc}}}
 .meta{{color:#9ca3af;font-size:13px;line-height:1.7}}
 .scores{{display:flex;gap:18px}} .scores div{{text-align:center}} .scores b{{font-size:22px}}
+.stance{{background:#0b0f17;border:1px solid #22c55e55;border-radius:10px;padding:8px 14px;line-height:1.5}}
 .grid{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}
 .igrid{{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}}
 .rgrid{{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}}
@@ -573,7 +610,9 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
   .banner{{padding:15px 16px;gap:14px}} .banner .rg{{font-size:26px}}
   .scores{{gap:14px;flex-wrap:wrap}} .scores b{{font-size:18px}}
   .grid,.igrid,.rgrid{{grid-template-columns:1fr;gap:12px}}
-  .tab-btn{{padding:8px 12px;font-size:13px;flex:1;min-width:0}}
+  .tab-btn{{padding:8px 10px;font-size:13px;flex:1;min-width:0;text-align:center}}
+  .tlong{{display:none}}
+  .stance{{width:100%}}
   .card{{padding:12px}} .card .big{{font-size:22px}}
   table{{font-size:12px}} th,td{{padding:5px 5px;vertical-align:top}}
   th{{white-space:nowrap;font-size:11px}}
@@ -594,15 +633,16 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <h1>🇺🇸 미국 경기 국면 센싱 대시보드 <span style="font-size:12px;color:#6b7280">기준 {reg.get('as_of')}</span></h1>
 <div class="tabs">
   <div class="tab-btn on" data-t="dash">① 대시보드</div>
-  <div class="tab-btn" data-t="ind">② 지표(선행·동행·후행)</div>
-  <div class="tab-btn" data-t="val">③ 검증(백테스트)</div>
+  <div class="tab-btn" data-t="ind">② 지표<span class="tlong">(선행·동행·후행)</span></div>
+  <div class="tab-btn" data-t="val">③ 검증<span class="tlong">(백테스트)</span></div>
   <div class="tab-btn" data-t="doc">④ 설명</div>
 </div>
 
 <!-- ===== 탭1 대시보드 ===== -->
 <div class="tab on" id="dash">
 <div class="banner">
-  <div><div class="rg">{reg.get('regime_kr')}</div><div class="meta">{reg.get('regime')} · 신뢰도 {reg.get('confidence')} · {'잠정' if reg.get('provisional') else '확정'}</div></div>
+  <div><div class="rg">{reg.get('regime_kr')}</div><div class="meta">{reg.get('regime')} · 신뢰도 {reg.get('confidence')} · {prov_badge}</div></div>
+  <div class="stance"><div class="meta">권장 스탠스</div><div><b style="font-size:20px;color:#22c55e">주식 {equity_pct}%</b> · {stance_short}</div></div>
   <div class="scores">
     <div><div class="meta">선행</div><b style="color:#3b82f6">{sc['leading']:+.2f}</b></div>
     <div><div class="meta">동행</div><b style="color:#22c55e">{sc['coincident']:+.2f}</b></div>
@@ -610,7 +650,6 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
   </div>
   <div class="meta">침체 트리거: <span class="alert {'warn' if trig.get('alert') else 'ok'}">{'⚠ 경보' if trig.get('alert') else '정상'}</span><br>{trig.get('detail','')}</div>
 </div>
-<p class="note">영상(2026-06-17, 버디버디) 결론 "성장 국면" 과 엔진 판정 일치 ✅</p>
 
 <h2>판정 근거 (왜 {reg.get('regime_kr')}인가)</h2>
 {_basis_panel(explain, reg)}
@@ -657,7 +696,7 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <!-- ===== 탭3 검증 ===== -->
 <div class="tab" id="val">
 <h2>실행 가이드 — 수익+방어 균형 전략</h2>
-{_exec_guide(uni, reg)}
+{_exec_guide(uni, reg, valid)}
 <h2>전략 검증 — "맞히는가" & "버는가"</h2>
 {_validation_tab(valid)}
 </div>
@@ -713,6 +752,11 @@ if(BT.dates&&document.getElementById('btChart')){{new Chart(btChart,{{type:'line
   {{label:'SPY 국면타이밍(순수방어)',data:BT.spy_timed,borderColor:'#6b7280',borderWidth:1.2,pointRadius:0,tension:.2}}]}},
   options:{{plugins:{{legend:{{labels:{{color:'#e5e7eb'}}}}}},scales:{{x:{{ticks:{{color:'#6b7280',maxTicksLimit:12}},grid:{{display:false}}}},y:{{type:'logarithmic',ticks:{{color:'#6b7280'}},grid:{{color:'#1f293755'}}}}}}}}}});}}
 </script>
+<footer style="margin-top:34px;padding:18px 0;border-top:1px solid #1f2937;color:#6b7280;font-size:12px;line-height:1.8">
+  ⚠ <b>교육·연구 목적입니다. 투자 권유가 아닙니다.</b> 모든 수치는 과거 백테스트이며 미래 수익을 보장하지 않습니다. 투자 판단과 그 결과의 책임은 전적으로 본인에게 있습니다.<br>
+  데이터 출처: FRED(세인트루이스 연준) · Trading Economics · Yahoo Finance · Wikipedia(S&P500 구성). 방법론: NH투자증권 백찬규 센터장 4국면 로테이션 프레임 정량화.<br>
+  기준일 {reg.get('as_of')} · 자동 갱신(월·주간).
+</footer>
 </body></html>"""
     out_path.write_text(html, encoding="utf-8")
     return out_path

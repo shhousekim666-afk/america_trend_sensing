@@ -27,6 +27,9 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r pipeline/requirements.txt
+      - name: Unit tests (core regime logic)
+        working-directory: pipeline
+        run: python -m pytest tests/ -q
       - name: Run pipeline (collect → regime → recommend → report)
         working-directory: pipeline
         run: python -m ats.cli update
