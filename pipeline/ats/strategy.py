@@ -332,15 +332,37 @@ def _dca_basket(rets, idx, regime_s, basket, contrib=1.0, cost=COST):
     return _dca_metrics(vals, paids, contrib)
 
 
+def _dca_constmix(rets, idx, weights, contrib=1.0, cost=COST):
+    """상수혼합 적립 — 매월 고정비율(예: QQQ75/GLD25)로 리밸런싱하며 납입.
+    국면/추세 타이밍 없이 금(GLD) 슬리브로 낙폭만 쿠션(검증: QQQ 수익 ~90%·MDD QQQ보다 낮음)."""
+    pos, paid, vals, paids = {}, 0.0, [], []
+    for t in idx:
+        if rets.index.get_loc(t) < 11:
+            continue
+        V = sum(pos.values()) + contrib
+        paid += contrib
+        old = {a: pos.get(a, 0.0) for a in set(pos) | set(weights)}
+        tgt = {a: V * w for a, w in weights.items()}
+        tof = sum(abs(tgt.get(a, 0) - old.get(a, 0)) for a in set(old) | set(tgt)) / V if V else 0
+        Vn = V * (1 - tof * cost)
+        pos = {a: Vn * w for a, w in weights.items()}
+        for a in list(pos):
+            r = rets.at[t, a] if (a in rets.columns and pd.notna(rets.at[t, a])) else 0
+            pos[a] *= (1 + r)
+        vals.append(sum(pos.values())); paids.append(paid)
+    return _dca_metrics(vals, paids, contrib)
+
+
 def _build_dca(raw_curves, rets, idx, regime_s, baskets):
     """적립식 비교: 공격형·균형형은 현실적 국면전환 적립(_dca_basket),
-    SPY·QQQ는 단일자산 단순 적립(_dca_single)."""
+    SPY·QQQ는 단일자산 단순 적립(_dca_single), QQQ/GLD는 상수혼합(_dca_constmix)."""
     rows, curves = [], {}
     plan = [
-        ("basket", "공격형 적립", lambda: _dca_basket(rets, idx, regime_s, baskets["basket"])),
-        ("basket_bal", "균형형 적립", lambda: _dca_basket(rets, idx, regime_s, baskets["basket_bal"])),
+        ("qqq_bh", "QQQ 적립(최고수익)", lambda: _dca_single(_monthly_rets_from_curve(raw_curves["qqq_bh"]))),
+        ("qqq_gld", "QQQ75/GLD25 적립(금쿠션)", lambda: _dca_constmix(rets, idx, {"QQQ": 0.75, "GLD": 0.25})),
         ("benchmark", "SPY 적립", lambda: _dca_single(_monthly_rets_from_curve(raw_curves["benchmark"]))),
-        ("qqq_bh", "QQQ 적립", lambda: _dca_single(_monthly_rets_from_curve(raw_curves["qqq_bh"]))),
+        ("basket", "공격형 적립(국면)", lambda: _dca_basket(rets, idx, regime_s, baskets["basket"])),
+        ("basket_bal", "균형형 적립(국면)", lambda: _dca_basket(rets, idx, regime_s, baskets["basket_bal"])),
     ]
     for k, lab, fn in plan:
         d = fn()

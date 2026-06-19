@@ -467,26 +467,30 @@ def _validation_tab(valid):
     dca_html = ""
     if dca.get("rows"):
         n_mo = len(dca.get("curves", {}).get("dates", []))
-        best_mult = max((r["multiple"] for r in dca["rows"]), default=0)
         drows = ""
         for r in dca["rows"]:
-            hi = r["multiple"] == best_mult
+            hi = r["key"] == "qqq_gld"  # 추천(금쿠션)
             cls = ' style="color:#a855f7;font-weight:700"' if hi else ""
             irr = f'{r["irr"]*100:.1f}%' if r.get("irr") is not None else "-"
-            drows += (f'<tr{cls}><td>{r["label"]}{" ★" if hi else ""}</td>'
+            drows += (f'<tr{cls}><td>{r["label"]}{" ★추천" if hi else ""}</td>'
                       f'<td>{r["multiple"]}x</td><td>{irr}</td><td>{r["mdd"]*100:.0f}%</td></tr>')
         dca_html = (
             f'<div class="card"><h4>💰 적립식(매달 정액 납입) 백테스트 — {n_mo//12}년 {n_mo%12}개월</h4>'
-            f'<p class="cap">목돈 한 번이 아니라 <b>매달 같은 금액</b>을 납입. <b>공격형·균형형</b>은 현실적으로 — '
-            f'국면 <b>전환 시에만</b> 기존 보유분을 새 국면 비중으로 교체(겹치는 QQQ 등은 유지, 바뀐 부분만 매매)하고, '
-            f'그 사이 신규 납입금은 <b>현재 국면 자산</b>으로 매입. <b>SPY·QQQ</b>는 단순 적립(교체 없음). '
-            f'수익배수=최종평가액÷총납입, IRR=납입시점 반영 연환산수익률(money-weighted), MDD=평가액 최대낙폭.</p>'
+            f'<p class="cap">목돈 한 번이 아니라 <b>매달 같은 금액</b>을 납입. <b>QQQ·SPY</b>는 단순 적립, '
+            f'<b>QQQ75/GLD25</b>는 금 25%를 섞어 매월 리밸런싱, <b>공격형·균형형</b>은 국면 전환 시에만 기존분 교체(겹치는 자산 유지)+신규는 현재 국면 매입. '
+            f'수익배수=최종평가액÷총납입, IRR=납입시점 반영 연환산(money-weighted), MDD=평가액 최대낙폭.</p>'
             f'<div class="tbl-wrap"><table><tr><th>전략</th><th>수익배수</th><th>연환산 IRR</th><th>평가액 MDD</th></tr>{drows}</table></div>'
             f'<canvas id="dcaChart" height="80"></canvas>'
-            f'<p class="cap" style="margin-top:10px"><b>⚠ 적립식에선 결론이 뒤집힌다.</b> 국면 타이밍(공격형·균형형)이 '
-            f'<b>단순 적립(SPY·QQQ)보다 못하다.</b> 이유: 적립식은 자금이 나중에 쌓이고 <b>폭락장이 곧 싸게 사는 기회</b>인데, '
-            f'국면 방어는 바로 그때 주식을 줄여 그 기회를 놓친다. 게다가 평가액 MDD는 후반 큰 잔고가 좌우해 방어 효과도 미미하다. '
-            f'→ <b>국면 타이밍은 "목돈/기존 자산"용. 매달 새로 넣는 적립금은 그냥 QQQ·SPY에 꾸준히가 낫다.</b></p></div>')
+            f'<p class="cap" style="margin-top:10px"><b>① 적립식엔 국면 타이밍이 안 맞는다.</b> 공격형·균형형이 단순 적립보다 못하다 — '
+            f'적립금은 자금이 나중에 쌓이고 <b>폭락장이 곧 싸게 사는 기회</b>인데 국면 방어가 그때 주식을 줄여 기회를 놓치고, '
+            f'거시 신호도 느려(2022 낙폭을 늦게 인식) 평가액 MDD를 못 줄인다. '
+            f'<b>② 그래서 "QQQ를 안 팔되 금(GLD)으로 낙폭만 쿠션"이 최선.</b> '
+            f'<b>QQQ75/GLD25</b>는 QQQ 수익의 ~90%를 유지하면서 낙폭은 QQQ(-32%)·공격형(-27%)보다 낮은 -26%. '
+            f'금은 위기(2008·2022)에 올라 QQQ를 안 팔고도 방어가 된다(채권 TLT은 2022 동반폭락으로 실패).</p>'
+            f'<p class="note" style="margin-top:8px">⚠ <b>금에 대한 정직한 한계:</b> 2006~2026은 저금리·QE·달러약세로 <b>금에 유리한 레짐</b>이었다. '
+            f'2013~2018 금 약세기엔 QQQ75/GLD25가 QQQ 단순적립보다 <b>수익이 낮았다</b>(낙폭 방어는 유지). '
+            f'금 비중은 25~35%에서 매끄럽게 변해 과적합은 아니지만(높일수록 수익↓·낙폭↓), 금 우위가 미래에도 이어진다는 보장은 없다. '
+            f'"QQQ보다 수익↑+낙폭↓ 동시"는 무레버리지로 불가능 — 금쿠션은 <b>QQQ 수익을 약간 양보하고 낙폭을 사는</b> 트레이드오프다.</p></div>')
 
     return f"""
 {concl}
@@ -784,9 +788,10 @@ const DCA={json.dumps(dca_curves)};
 if(DCA.dates&&document.getElementById('dcaChart')){{new Chart(dcaChart,{{type:'line',data:{{labels:DCA.dates,datasets:[
   {{label:'총 납입액(원금)',data:DCA.paid,borderColor:'#6b7280',borderWidth:1.4,borderDash:[5,4],pointRadius:0}},
   {{label:'QQQ 적립',data:DCA.qqq_bh,borderColor:'#f59e0b',borderWidth:2.2,pointRadius:0,tension:.2}},
-  {{label:'SPY 적립',data:DCA.benchmark,borderColor:'#22c55e',borderWidth:1.8,pointRadius:0,tension:.2}},
-  {{label:'공격형 적립',data:DCA.basket,borderColor:'#a855f7',borderWidth:1.8,pointRadius:0,tension:.2}},
-  {{label:'균형형 적립',data:DCA.basket_bal,borderColor:'#3b82f6',borderWidth:1.4,pointRadius:0,tension:.2}}]}},
+  {{label:'QQQ75/GLD25 적립(추천)',data:DCA.qqq_gld,borderColor:'#a855f7',borderWidth:2.4,pointRadius:0,tension:.2}},
+  {{label:'SPY 적립',data:DCA.benchmark,borderColor:'#22c55e',borderWidth:1.6,pointRadius:0,tension:.2}},
+  {{label:'공격형 적립',data:DCA.basket,borderColor:'#6b7280',borderWidth:1.3,pointRadius:0,tension:.2}},
+  {{label:'균형형 적립',data:DCA.basket_bal,borderColor:'#475569',borderWidth:1.1,pointRadius:0,tension:.2}}]}},
   options:{{plugins:{{legend:{{labels:{{color:'#e5e7eb'}}}}}},scales:{{x:{{ticks:{{color:'#6b7280',maxTicksLimit:12}},grid:{{display:false}}}},y:{{ticks:{{color:'#6b7280'}},grid:{{color:'#1f293755'}}}}}}}}}});}}
 </script>
 <footer style="margin-top:34px;padding:18px 0;border-top:1px solid #1f2937;color:#6b7280;font-size:12px;line-height:1.8">
