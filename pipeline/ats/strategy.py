@@ -216,7 +216,18 @@ def backtest_strategy(start="2006-01-01") -> dict:
         bench.append((t, beq))
     benchmark = _stats(bench, "SPY 단순보유", "benchmark", rf_m)
 
+    # QQQ 단순보유(적립식 비교군 — '그냥 QQQ에 매달')
+    qqq_bh = []
+    qeq = 1.0
+    for t in idx:
+        if rets.index.get_loc(t) < 11:
+            continue
+        qr = rets.at[t, "QQQ"] if ("QQQ" in rets.columns and pd.notna(rets.at[t, "QQQ"])) else 0
+        qeq *= (1 + qr)
+        qqq_bh.append((t, qeq))
+
     variants, curves = [], {"dates": [t.date().isoformat() for t, _ in bench], "benchmark": [round(v, 3) for _, v in bench]}
+    raw_curves = {"benchmark": bench, "qqq_bh": qqq_bh}
     for key, label, fn, fmode, ubeta in VARIANTS:
         curve, turns, expo = _run(idx, rets, mom6, spym, regime_s, spy_off, pb, fn, fmode, ubeta)
         st = _stats(curve, label, key, rf_m)
@@ -225,6 +236,7 @@ def backtest_strategy(start="2006-01-01") -> dict:
         st["excess_cagr"] = round(st["cagr"] - benchmark["cagr"], 3)
         variants.append(st)
         curves[key] = [round(v, 3) for _, v in curve]
+        raw_curves[key] = curve
 
     best = max(variants, key=lambda v: v["sharpe"])
     return {
@@ -232,4 +244,67 @@ def backtest_strategy(start="2006-01-01") -> dict:
         "benchmark": benchmark, "variants": variants, "best": best["key"],
         "params": {"cost_oneway": COST, "trend_filter": "SPY 10M MA", "risk_beta": RISK},
         "curves": curves,
+        "dca": _build_dca(raw_curves),
     }
+
+
+def _monthly_rets_from_curve(curve):
+    """누적 자산곡선(시작 1.0 가정) → 월별 수익률 리스트."""
+    out, prev = [], 1.0
+    for _, e in curve:
+        out.append(e / prev - 1.0 if prev else 0.0)
+        prev = e
+    return out
+
+
+def _dca_sim(rets, contrib=1.0):
+    """적립식: 매월 contrib 납입 후 그달 수익 적용. money-weighted 수익률(IRR) + 평가액 MDD."""
+    V, paid, vals, paids = 0.0, 0.0, [], []
+    for r in rets:
+        V = (V + contrib) * (1 + r)
+        paid += contrib
+        vals.append(V); paids.append(paid)
+    n = len(rets)
+    if n == 0 or V <= 0:
+        return None
+
+    def npv(rm):  # 월 t(0..n-1) 납입 -contrib, 종료시 +V
+        return sum(-contrib / (1 + rm) ** t for t in range(n)) + V / (1 + rm) ** n
+    irr = None
+    if npv(-0.5) > 0 > npv(1.0):  # 부호변화 확인 후 이분법
+        lo, hi = -0.5, 1.0
+        for _ in range(80):
+            mid = (lo + hi) / 2
+            if npv(mid) > 0:
+                lo = mid
+            else:
+                hi = mid
+        irr = (1 + (lo + hi) / 2) ** 12 - 1
+    peak, mdd = -1.0, 0.0
+    for v in vals:
+        peak = max(peak, v)
+        if peak > 0:
+            mdd = min(mdd, v / peak - 1)
+    return {"final": V, "paid": paid, "multiple": round(V / paid, 2),
+            "irr": round(irr, 3) if irr is not None else None, "mdd": round(mdd, 3),
+            "vals": vals, "paids": paids}
+
+
+def _build_dca(raw_curves):
+    """공격형/균형형/SPY 적립식(매월 1단위) 비교 — 동일 납입 흐름에 전략별 수익만 차이."""
+    keys = [("basket", "공격형 적립"), ("basket_bal", "균형형 적립"),
+            ("benchmark", "SPY 적립"), ("qqq_bh", "QQQ 적립")]
+    rows, curves = [], {}
+    for k, lab in keys:
+        if k not in raw_curves:
+            continue
+        d = _dca_sim(_monthly_rets_from_curve(raw_curves[k]))
+        if not d:
+            continue
+        rows.append({"key": k, "label": lab, "multiple": d["multiple"],
+                     "irr": d["irr"], "mdd": d["mdd"]})
+        curves[k] = [round(v, 2) for v in d["vals"]]
+        if "paid" not in curves:
+            curves["paid"] = [round(v, 2) for v in d["paids"]]
+            curves["dates"] = [t.date().isoformat() for t, _ in raw_curves[k]]
+    return {"rows": rows, "curves": curves}

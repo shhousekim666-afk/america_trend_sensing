@@ -461,10 +461,36 @@ def _validation_tab(valid):
         '검증(가격 선행지표를 빼고 재백테스트, 2026-06): 공격형이 <b>9.6% / -44% / 0.57</b>로 떨어져 <b>SPY에 진다</b>. '
         '즉 엣지의 약 절반은 트렌드팔로잉 성격이며 순수 매크로 알파는 제한적이다. '
         '주가는 정당한 선행지표지만(모든 인베스트먼트 클락이 시장신호 사용), 이 도구의 우위를 "매크로 예측력"으로 과신하면 안 된다.</p></div>')
+
+    # ── 적립식(DCA) 비교 ──
+    dca = bt.get("dca", {}) if bt else {}
+    dca_html = ""
+    if dca.get("rows"):
+        n_mo = len(dca.get("curves", {}).get("dates", []))
+        best_mult = max((r["multiple"] for r in dca["rows"]), default=0)
+        drows = ""
+        for r in dca["rows"]:
+            hi = r["multiple"] == best_mult
+            cls = ' style="color:#a855f7;font-weight:700"' if hi else ""
+            irr = f'{r["irr"]*100:.1f}%' if r.get("irr") is not None else "-"
+            drows += (f'<tr{cls}><td>{r["label"]}{" ★" if hi else ""}</td>'
+                      f'<td>{r["multiple"]}x</td><td>{irr}</td><td>{r["mdd"]*100:.0f}%</td></tr>')
+        dca_html = (
+            f'<div class="card"><h4>💰 적립식(매달 정액 납입) 백테스트 — {n_mo//12}년 {n_mo%12}개월</h4>'
+            f'<p class="cap">목돈 한 번이 아니라 <b>매달 같은 금액</b>을 전략 비중대로 납입했을 때. '
+            f'수익배수=최종평가액÷총납입, IRR=납입시점 반영 연환산수익률(money-weighted), MDD=평가액 최대낙폭.</p>'
+            f'<div class="tbl-wrap"><table><tr><th>전략</th><th>수익배수</th><th>연환산 IRR</th><th>평가액 MDD</th></tr>{drows}</table></div>'
+            f'<canvas id="dcaChart" height="80"></canvas>'
+            f'<p class="cap" style="margin-top:10px"><b>⚠ 적립식에선 결론이 뒤집힌다.</b> 국면 타이밍(공격형·균형형)이 '
+            f'<b>단순 적립(SPY·QQQ)보다 못하다.</b> 이유: 적립식은 자금이 나중에 쌓이고 <b>폭락장이 곧 싸게 사는 기회</b>인데, '
+            f'국면 방어는 바로 그때 주식을 줄여 그 기회를 놓친다. 게다가 평가액 MDD는 후반 큰 잔고가 좌우해 방어 효과도 미미하다. '
+            f'→ <b>국면 타이밍은 "목돈/기존 자산"용. 매달 새로 넣는 적립금은 그냥 QQQ·SPY에 꾸준히가 낫다.</b></p></div>')
+
     return f"""
 {concl}
 {bt_html}
 {disclosure}
+{dca_html}
 {nber_html}
 <p class="note">국면 판정 정확도(NBER)와 전략 수익/위험을 분리 검증. '맞히는 것'과 '버는 것'은 별개 — 둘 다 수치로 본다.</p>"""
 
@@ -474,6 +500,7 @@ def build(out_path=None):
      uni, stocks_detail, explain, valid) = _gather()
     out_path = out_path or (ROOT_DIR / "report.html")
     bt_curves = valid.get("strategy", {}).get("curves", {})
+    dca_curves = valid.get("strategy", {}).get("dca", {}).get("curves", {})
     eff_by_id = {p["id"]: p for p in explain.get("per", [])}
 
     def _hot_badge(m):
@@ -751,6 +778,14 @@ if(BT.dates&&document.getElementById('btChart')){{new Chart(btChart,{{type:'line
   {{label:'균형형 바스켓(효율최고)',data:BT.basket_bal,borderColor:'#3b82f6',borderWidth:1.6,pointRadius:0,tension:.2}},
   {{label:'SPY 국면타이밍(순수방어)',data:BT.spy_timed,borderColor:'#6b7280',borderWidth:1.2,pointRadius:0,tension:.2}}]}},
   options:{{plugins:{{legend:{{labels:{{color:'#e5e7eb'}}}}}},scales:{{x:{{ticks:{{color:'#6b7280',maxTicksLimit:12}},grid:{{display:false}}}},y:{{type:'logarithmic',ticks:{{color:'#6b7280'}},grid:{{color:'#1f293755'}}}}}}}}}});}}
+const DCA={json.dumps(dca_curves)};
+if(DCA.dates&&document.getElementById('dcaChart')){{new Chart(dcaChart,{{type:'line',data:{{labels:DCA.dates,datasets:[
+  {{label:'총 납입액(원금)',data:DCA.paid,borderColor:'#6b7280',borderWidth:1.4,borderDash:[5,4],pointRadius:0}},
+  {{label:'QQQ 적립',data:DCA.qqq_bh,borderColor:'#f59e0b',borderWidth:2.2,pointRadius:0,tension:.2}},
+  {{label:'SPY 적립',data:DCA.benchmark,borderColor:'#22c55e',borderWidth:1.8,pointRadius:0,tension:.2}},
+  {{label:'공격형 적립',data:DCA.basket,borderColor:'#a855f7',borderWidth:1.8,pointRadius:0,tension:.2}},
+  {{label:'균형형 적립',data:DCA.basket_bal,borderColor:'#3b82f6',borderWidth:1.4,pointRadius:0,tension:.2}}]}},
+  options:{{plugins:{{legend:{{labels:{{color:'#e5e7eb'}}}}}},scales:{{x:{{ticks:{{color:'#6b7280',maxTicksLimit:12}},grid:{{display:false}}}},y:{{ticks:{{color:'#6b7280'}},grid:{{color:'#1f293755'}}}}}}}}}});}}
 </script>
 <footer style="margin-top:34px;padding:18px 0;border-top:1px solid #1f2937;color:#6b7280;font-size:12px;line-height:1.8">
   ⚠ <b>교육·연구 목적입니다. 투자 권유가 아닙니다.</b> 모든 수치는 과거 백테스트이며 미래 수익을 보장하지 않습니다. 투자 판단과 그 결과의 책임은 전적으로 본인에게 있습니다.<br>
