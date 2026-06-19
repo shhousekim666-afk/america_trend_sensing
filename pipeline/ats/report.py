@@ -354,7 +354,7 @@ def build(out_path=None):
     stock_rows = "".join(
         f'<tr><td>{s["rank"]}</td><td class="sym">{s["symbol"]}</td>'
         f'<td><b>{s["name"]}</b></td><td>{s["gics_kr"]} · <span class="sub">{s["sub"]}</span></td>'
-        f'<td class="mtr">{_hot_badge(s["metric"])}</td><td class="dsc">{s["desc"]}</td></tr>'
+        f'<td class="mtr">{_hot_badge(s["metric"])}</td><td class="dsc mobhide">{s["desc"]}</td></tr>'
         for s in stocks_detail)
 
     # 자산배분 바스켓 총 주식비중(현재 국면)
@@ -417,7 +417,8 @@ def build(out_path=None):
 <style>
 :root{{color-scheme:dark}}
 *{{box-sizing:border-box}}
-body{{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:#0b0f17;color:#e5e7eb;margin:0;padding:24px;max-width:1180px;margin:auto}}
+html{{overflow-x:hidden}}
+body{{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:#0b0f17;color:#e5e7eb;margin:0;padding:24px;max-width:1180px;margin:auto;overflow-x:hidden}}
 h1{{font-size:21px}} h2{{font-size:15px;color:#93c5fd;margin-top:30px;border-bottom:1px solid #1f2937;padding-bottom:6px}} h3{{font-size:14px}}
 .tabs{{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 8px}}
 .tab-btn{{background:#111827;border:1px solid #1f2937;color:#9ca3af;padding:9px 18px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:600}}
@@ -475,8 +476,10 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
   .grid,.igrid,.rgrid{{grid-template-columns:1fr;gap:12px}}
   .tab-btn{{padding:8px 12px;font-size:13px;flex:1;min-width:0}}
   .card{{padding:12px}} .card .big{{font-size:22px}}
-  table{{font-size:12px}} th,td{{padding:5px 6px}}
-  .tbl-wrap table{{min-width:540px}}
+  table{{font-size:12px}} th,td{{padding:5px 6px;word-break:break-word}}
+  .mobhide{{display:none}}
+  .mtr{{white-space:normal}}
+  .tbl-wrap table{{min-width:0}}
   .tbl-wrap table.heat{{min-width:640px}}
   .sname{{width:96px}} .ssym{{width:42px}} .sval{{width:48px}}
   .kpi b{{font-size:17px;margin-right:10px}}
@@ -534,7 +537,7 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
   <h4>S&P500 개별종목 — {reg.get('regime_kr')} 국면 시클리컬, 팩터 상위</h4>
   <p class="note" style="margin:0 0 10px">선별 방식: <b>국면 → 유리 섹터(금융·산업재·에너지·소재) → 팩터 랭킹</b>. 기본 엔진은 6M 모멘텀, 옵션으로 trading_america 펀더멘털 3팩터(V/M/D). 숫자가 높을수록 상위.</p>
   <div class="tbl-wrap"><table>
-   <tr><th>#</th><th>종목</th><th>종목명</th><th>섹터 · 세부업종</th><th>지표</th><th>설명</th></tr>
+   <tr><th>#</th><th>종목</th><th>종목명</th><th>섹터 · 세부업종</th><th>지표</th><th class="mobhide">설명</th></tr>
    {stock_rows}
   </table></div>
 </div>
