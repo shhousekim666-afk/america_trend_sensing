@@ -301,6 +301,63 @@ def _basis_panel(explain, reg):
 </div>"""
 
 
+ARCHETYPES_DISP = {  # 영상 34p: 4국면 × (선행,동행,후행) 방향 + 위험자산 대응
+    "recovery":  {"vec": (1, 0, -1),  "kr": ("반등", "바닥", "하락"), "act": "위험자산 선호(매수 시작)"},
+    "growth":    {"vec": (1, 1, 1),   "kr": ("상승", "상승", "상승"), "act": "위험자산 수익실현 준비"},
+    "slowdown":  {"vec": (-1, 0, 1),  "kr": ("하락", "전환", "상승"), "act": "위험자산 분할 매수"},
+    "recession": {"vec": (-1, -1, -1),"kr": ("하락", "하락", "하락"), "act": "위험자산 포지션 정리 완료"},
+}
+_ARW = {1: ("↑", "#22c55e"), 0: ("→", "#9ca3af"), -1: ("↓", "#ef4444")}
+
+
+def _sign(x, th=0.2):
+    return 1 if x > th else (-1 if x < -th else 0)
+
+
+def _regime_matrix(explain, reg):
+    """영상 4국면 방향 매트릭스 + 현재 실측 DI 부호 비교 → 판정이 옳은지 사용자가 직접 확인."""
+    if not explain:
+        return ""
+    vec = explain["vec"]
+    cur = explain["regime"]
+    cur_sign = tuple(_sign(v) for v in vec)
+    rows = ""
+    for k in ("recovery", "growth", "slowdown", "recession"):
+        d = ARCHETYPES_DISP[k]
+        c = REGIME_COLOR[k]
+        on = k == cur
+        cells = ""
+        for i in range(3):
+            arw, ac = _ARW[d["vec"][i]]
+            hit = on and cur_sign[i] == d["vec"][i]
+            mark = ' <span style="color:#22c55e">✓</span>' if hit else ""
+            cells += f'<td style="color:{ac}">{arw} {d["kr"][i]}{mark}</td>'
+        rows += (f'<tr style="{"background:"+c+"22" if on else ""}">'
+                 f'<td style="color:{c};font-weight:700;white-space:nowrap">{KOR[k]}{" ★현재" if on else ""}</td>'
+                 f'{cells}<td class="sub">{d["act"]}</td></tr>')
+    # 현재 실측 행
+    cur_cells = ""
+    for v in vec:
+        s = _sign(v)
+        arw, ac = _ARW[s]
+        cur_cells += f'<td style="color:{ac};font-weight:700">{arw} {v:+.2f}</td>'
+    match = sum(1 for i in range(3) if cur_sign[i] == ARCHETYPES_DISP[cur]["vec"][i])
+    cc = REGIME_COLOR[cur]
+    return f"""
+<div class="card" style="margin-top:14px">
+  <h4>국면 판정표 — 현재 데이터가 "{explain['regime_kr']}"와 맞는가</h4>
+  <p class="cap">NH투자증권 4국면 프레임(영상 34p): 국면마다 선행·동행·후행의 <b>방향 조합</b>이 정해져 있다. 맨 아래 <b>현재 실측 DI</b> 부호를 위 4국면과 대조하면 지금이 어느 국면인지 눈으로 확인된다. ✓ = 현재 부호가 그 국면 원형과 일치하는 축.</p>
+  <div class="tbl-wrap"><table>
+   <tr><th>국면</th><th>선행</th><th>동행</th><th>후행</th><th>위험자산 대응</th></tr>
+   {rows}
+   <tr style="border-top:2px solid {cc}">
+     <td style="font-weight:700;white-space:nowrap;color:{cc}">현재 실측</td>{cur_cells}
+     <td class="sub">→ <b style="color:{cc}">{explain['regime_kr']}</b> 원형과 {match}/3축 일치</td></tr>
+  </table></div>
+  <p class="note">화살표 기준: DI &gt; +0.2 상승(↑) / −0.2~+0.2 횡보·전환(→) / &lt; −0.2 하락(↓). 회복의 동행 '바닥', 둔화의 동행 '전환'은 0 부근(→)을 뜻함.</p>
+</div>"""
+
+
 def _exec_guide(uni, reg):
     """수익+방어 균형 전략을 실제로 굴리는 방법 — 국면 다이얼 + 5단계 절차."""
     basket = uni["regime_index_basket"]
@@ -552,6 +609,7 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 
 <h2>판정 근거 (왜 {reg.get('regime_kr')}인가)</h2>
 {_basis_panel(explain, reg)}
+{_regime_matrix(explain, reg)}
 
 <h3 style="margin-top:18px">핵심 지표 실측값 <span style="font-size:11px;color:#6b7280">— 위 판정의 입력 데이터 (Trading Economics, 사용자 지정 소스)</span></h3>
 <p class="cap">위 판정 근거의 선행·후행 축을 움직이는 실제 현재값. <b>실업률(후행)</b>이 직전월·예측치 대비 연속 상승하면 침체 확정 신호, <b>ISM PMI(선행)</b>가 50 이상이면 제조업 확장 → 선행 DI를 끌어올림.</p>
