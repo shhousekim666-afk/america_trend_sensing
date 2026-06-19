@@ -177,7 +177,7 @@ def _heatmap(timeline):
             f'<td style="background:{REGIME_COLOR.get(r,"#1f2937")}" title="{KOR.get(r,"")}">{SYM.get(r,"")}</td>'
             for r in by_year[y])
         body += f"<tr><td class='yr'>{y}</td>{tds}</tr>"
-    return f"<table class='heat'>{head}{body}</table>"
+    return f"<div class='tbl-wrap'><table class='heat'>{head}{body}</table></div>"
 
 
 AXIS_NOTE = {
@@ -330,13 +330,13 @@ def _validation_tab(valid):
         for s in sorted(bt["variants"], key=lambda x: x["sharpe"], reverse=True):
             rows += row(s, "best" if s["key"] == bt["best"] else "")
         bt_html = (
-            f'<div class="card"><h4>전략 백테스트 vs SPY — 섹터선택 변형 비교 ({bt["period"]})</h4>'
-            f'<table><tr><th>전략</th><th>CAGR</th><th>MDD</th><th>Sharpe</th><th>연회전</th></tr>{rows}</table>'
+            f'<div class="card"><h4>전략 백테스트 vs SPY — 변형 비교 ({bt["period"]})</h4>'
+            f'<div class="tbl-wrap"><table><tr><th>전략</th><th>CAGR</th><th>MDD</th><th>Sharpe</th><th>연회전</th></tr>{rows}</table></div>'
             f'<p class="cap">비용 편도 {bt["params"]["cost_oneway"]*100}% · 추세필터 {bt["params"]["trend_filter"]}. '
-            f'★=위험조정성과 최적. 섹터선택 변형 모두 SPY-국면타이밍보다 못함 → 모델 가치는 "섹터선택"이 아니라 "주식비중 타이밍".</p>'
+            f'★=위험조정성과 최적. <b>국면틸트</b>(좋은 국면 QQQ 풀투자+방어 국면만 추세필터)가 buy-hold 수익을 거의 따라잡으면서(10.2 vs 11.1%) DD는 -15%p 낮음. 섹터선택 변형은 알파 없음.</p>'
             f'<canvas id="btChart" height="80"></canvas></div>')
     return f"""
-<p class="prose"><b>이 도구는 "초과수익"이 아니라 "하방 방어" 도구다.</b> 국면 로테이션은 SPY 총수익을 못 이기지만(CAGR 열위), 최대낙폭을 절반으로 줄인다(-51%→-21%). 또 섹터선택은 알파를 못 내고(SPY를 국면 베타로만 타는 게 최적) 회전율만 늘린다. → 단독 매매신호가 아닌 <b>전술적 자산배분(TAA) 방어 오버레이</b>(주식비중 다이얼)로 쓰는 것이 적정. (revised 데이터+1M lag 기준, vintage 적용 시 다소 보수화)</p>
+<p class="prose"><b>방어만이 아니라 수익도 챙기는 균형 도구다.</b> 순수 방어(SPY 국면타이밍)는 낙폭을 -51%→-21%로 줄이지만 수익도 6.2%로 반토막난다. <b>국면틸트</b>는 좋은 국면(회복·성장)엔 고베타 QQQ로 풀투자해 상승을 먹고, 방어 국면에만 추세필터로 빠진다 → <b>CAGR 10.2%(buy-hold 11.1%에 근접) · MDD -36%(buy-hold -51%) · Sharpe 0.74</b>로 수익과 방어를 동시에. 섹터선택은 여전히 알파가 없어(국면 베타로 타는 게 최적) 종목/섹터는 보조로만. (revised 데이터+1M lag 기준, vintage 적용 시 다소 보수화)</p>
 {bt_html}
 {nber_html}
 <p class="note">국면 판정 정확도(NBER)와 전략 수익/위험을 분리 검증. '맞히는 것'과 '버는 것'은 별개 — 둘 다 수치로 본다.</p>"""
@@ -419,7 +419,7 @@ def build(out_path=None):
 *{{box-sizing:border-box}}
 body{{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:#0b0f17;color:#e5e7eb;margin:0;padding:24px;max-width:1180px;margin:auto}}
 h1{{font-size:21px}} h2{{font-size:15px;color:#93c5fd;margin-top:30px;border-bottom:1px solid #1f2937;padding-bottom:6px}} h3{{font-size:14px}}
-.tabs{{display:flex;gap:8px;margin:18px 0 8px}}
+.tabs{{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 8px}}
 .tab-btn{{background:#111827;border:1px solid #1f2937;color:#9ca3af;padding:9px 18px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:600}}
 .tab-btn.on{{background:{rc}22;border-color:{rc};color:#fff}}
 .tab{{display:none}} .tab.on{{display:block}}
@@ -466,6 +466,24 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 .kpi span{{color:#6b7280;font-size:12px}} .kpi b{{font-size:20px;margin-right:14px}}
 .teimg{{margin-top:8px}} .teimg summary{{cursor:pointer;font-size:12px;color:#93c5fd}}
 .teimg img{{width:100%;border:1px solid #1f2937;border-radius:8px;margin-top:8px;background:#fff}}
+.tbl-wrap{{overflow-x:auto;-webkit-overflow-scrolling:touch}}
+@media (max-width:640px){{
+  body{{padding:12px}}
+  h1{{font-size:17px;line-height:1.4}} h2{{font-size:14px;margin-top:22px}}
+  .banner{{padding:15px 16px;gap:14px}} .banner .rg{{font-size:26px}}
+  .scores{{gap:14px;flex-wrap:wrap}} .scores b{{font-size:18px}}
+  .grid,.igrid,.rgrid{{grid-template-columns:1fr;gap:12px}}
+  .tab-btn{{padding:8px 12px;font-size:13px;flex:1;min-width:0}}
+  .card{{padding:12px}} .card .big{{font-size:22px}}
+  table{{font-size:12px}} th,td{{padding:5px 6px}}
+  .tbl-wrap table{{min-width:540px}}
+  .tbl-wrap table.heat{{min-width:640px}}
+  .sname{{width:96px}} .ssym{{width:42px}} .sval{{width:48px}}
+  .kpi b{{font-size:17px;margin-right:10px}}
+  .rrow{{flex-wrap:wrap;gap:2px 10px}} .rrow span:first-child{{min-width:60px}}
+  .vecline,.chips{{gap:6px}} .dist{{padding:3px 6px;font-size:11px}}
+  figure img{{border-radius:6px}}
+}}
 </style></head><body>
 <h1>🇺🇸 미국 경기 국면 센싱 대시보드 <span style="font-size:12px;color:#6b7280">기준 {reg.get('as_of')}</span></h1>
 <div class="tabs">
@@ -515,10 +533,10 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <div class="card" style="margin-top:16px">
   <h4>S&P500 개별종목 — {reg.get('regime_kr')} 국면 시클리컬, 팩터 상위</h4>
   <p class="note" style="margin:0 0 10px">선별 방식: <b>국면 → 유리 섹터(금융·산업재·에너지·소재) → 팩터 랭킹</b>. 기본 엔진은 6M 모멘텀, 옵션으로 trading_america 펀더멘털 3팩터(V/M/D). 숫자가 높을수록 상위.</p>
-  <table>
+  <div class="tbl-wrap"><table>
    <tr><th>#</th><th>종목</th><th>종목명</th><th>섹터 · 세부업종</th><th>지표</th><th>설명</th></tr>
    {stock_rows}
-  </table>
+  </table></div>
 </div>
 </div>
 
@@ -581,8 +599,9 @@ for(const id in IND){{const el=document.getElementById('c_'+id);if(!el)continue;
 const BT={json.dumps(bt_curves)};
 if(BT.dates&&document.getElementById('btChart')){{new Chart(btChart,{{type:'line',data:{{labels:BT.dates,datasets:[
   {{label:'SPY 단순보유',data:BT.benchmark,borderColor:'#22c55e',borderWidth:1.8,pointRadius:0,tension:.2}},
-  {{label:'SPY 국면타이밍(최적)',data:BT.spy_timed,borderColor:'#3b82f6',borderWidth:1.8,pointRadius:0,tension:.2}},
-  {{label:'섹터 favored 로테이션',data:BT.current,borderColor:'#f59e0b',borderWidth:1.4,pointRadius:0,tension:.2}}]}},
+  {{label:'국면틸트(수익+방어, 최적)',data:BT.regime_tilt,borderColor:'#a855f7',borderWidth:2.2,pointRadius:0,tension:.2}},
+  {{label:'SPY 국면타이밍(순수방어)',data:BT.spy_timed,borderColor:'#3b82f6',borderWidth:1.5,pointRadius:0,tension:.2}},
+  {{label:'섹터 favored 로테이션',data:BT.current,borderColor:'#f59e0b',borderWidth:1.2,pointRadius:0,tension:.2}}]}},
   options:{{plugins:{{legend:{{labels:{{color:'#e5e7eb'}}}}}},scales:{{x:{{ticks:{{color:'#6b7280',maxTicksLimit:12}},grid:{{display:false}}}},y:{{type:'logarithmic',ticks:{{color:'#6b7280'}},grid:{{color:'#1f293755'}}}}}}}}}});}}
 </script>
 </body></html>"""

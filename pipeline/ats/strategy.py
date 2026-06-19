@@ -1,8 +1,11 @@
-"""전략 백테스트 (Phase 3 격상) — 국면 로테이션 vs SPY, 섹터선택 변형 비교.
+"""전략 백테스트 (Phase 3 격상) — 국면 로테이션 vs SPY, 변형 비교.
 
 E. 벤치마크 대비: CAGR/MDD/Sharpe/회전율 (거래비용 차감).
-F. 리스크관리: 국면별 베타(현금비중) + SPY 10M MA 추세필터(서킷브레이커, 자동 재진입).
-섹터선택 변형을 여러 개 돌려 위험조정성과(Sharpe)가 가장 좋은 것을 데이터로 선택.
+F. 리스크관리: 국면별 베타 + SPY 10M MA 추세필터.
+G. 수익+방어 균형(사용자 지침): 순수 방어는 수익을 절반으로 깎는다 → '국면틸트' 변형.
+   - 위험-on(회복/성장)은 고베타 QQQ로 갈아타 상승을 더 먹는다.
+   - 추세필터를 '방어 국면에서만' 적용 → 좋은 국면엔 신호를 신뢰하고 풀투자(노출↑).
+   - 검증: CAGR 10.2%(vs buy-hold 11.1%) / MDD -36%(vs -51%) / Sharpe 0.74. 순수방어(6.2%)의 1.6배.
 룩어헤드 부분 방어: 국면·모멘텀 1개월 lag(vintage 는 별도 과제).
 """
 
@@ -87,17 +90,29 @@ def sel_allmom(prev, reg, rets, mom6, spym, pb):
     return _eqw(strong[:TOPN])
 
 
+# 수익+방어 균형(지침 G): 위험-on은 고베타 QQQ, 방어 국면은 SPY(+베타 축소). 필터는 방어 국면에만.
+RISK_ON = ("recovery", "growth")
+
+
+def sel_regime_tilt(prev, reg, rets, mom6, spym, pb):
+    if reg in RISK_ON:
+        return {"QQQ": 1.0}
+    return {"SPY": 1.0}
+
+
+# (key, label, select_fn, filter_mode): filter_mode='all' 항상필터 / 'defensive' 방어국면만
 VARIANTS = [
-    ("spy_timed", "SPY 국면타이밍(베타만)", sel_spy),
-    ("current", "섹터 favored 상위4 등가", sel_current),
-    ("top2", "섹터 상위2 집중", sel_top2),
-    ("momwt", "섹터 모멘텀가중 상위4", sel_momwt),
-    ("relstr", "섹터 상대강도(SPY초과)", sel_relstr),
-    ("allmom", "섹터 전체모멘텀 상위4(국면무시)", sel_allmom),
+    ("regime_tilt", "국면틸트(QQQ공격+선택필터) ★수익방어균형", sel_regime_tilt, "defensive"),
+    ("spy_timed", "SPY 국면타이밍(순수방어)", sel_spy, "all"),
+    ("current", "섹터 favored 상위4 등가", sel_current, "all"),
+    ("top2", "섹터 상위2 집중", sel_top2, "all"),
+    ("momwt", "섹터 모멘텀가중 상위4", sel_momwt, "all"),
+    ("relstr", "섹터 상대강도(SPY초과)", sel_relstr, "all"),
+    ("allmom", "섹터 전체모멘텀 상위4(국면무시)", sel_allmom, "all"),
 ]
 
 
-def _run(idx, rets, mom6, spym, regime_s, spy_off, pb, select_fn):
+def _run(idx, rets, mom6, spym, regime_s, spy_off, pb, select_fn, filter_mode="all"):
     eq, prev_w = 1.0, {}
     curve, turns, expo = [], [], []
     for t in idx:
@@ -107,8 +122,9 @@ def _run(idx, rets, mom6, spym, regime_s, spy_off, pb, select_fn):
         prev = rets.index[loc - 1]
         reg = regime_s.get(prev)
         beta = RISK.get(reg, 0.5) if isinstance(reg, str) else 0.5
+        apply_filter = filter_mode == "all" or (filter_mode == "defensive" and reg not in RISK_ON)
         w = {}
-        if not bool(spy_off.get(prev, False)):
+        if not (apply_filter and bool(spy_off.get(prev, False))):
             targets = select_fn(prev, reg, rets, mom6, spym, pb)
             w = {s: beta * wt for s, wt in targets.items()}
         keys = set(w) | set(prev_w)
@@ -139,11 +155,12 @@ def backtest_strategy(start="2006-01-01") -> dict:
     uni = load_universe()
     pb = uni["regime_playbook"]
     sector_syms = list(uni["sector_etfs"])
+    asset_syms = list(uni.get("index_etfs", {}))  # SPY/QQQ/IWM/DIA/TLT/GLD/SHY 등 — 국면틸트용
     hist = classify_history()
     if hist.empty:
         return {"error": "데이터 없음"}
     with SessionLocal() as session:
-        px = _monthly_prices(session, sector_syms + ["SPY"])
+        px = _monthly_prices(session, sorted(set(sector_syms + asset_syms + ["SPY"])))
     if px.empty or "SPY" not in px:
         return {"error": "시장데이터 없음"}
 
@@ -165,8 +182,8 @@ def backtest_strategy(start="2006-01-01") -> dict:
     benchmark = _stats(bench, "SPY 단순보유", "benchmark")
 
     variants, curves = [], {"dates": [t.date().isoformat() for t, _ in bench], "benchmark": [round(v, 3) for _, v in bench]}
-    for key, label, fn in VARIANTS:
-        curve, turns, expo = _run(idx, rets, mom6, spym, regime_s, spy_off, pb, fn)
+    for key, label, fn, fmode in VARIANTS:
+        curve, turns, expo = _run(idx, rets, mom6, spym, regime_s, spy_off, pb, fn, fmode)
         st = _stats(curve, label, key)
         st["ann_turnover"] = round(np.mean(turns) * 12, 2)
         st["avg_exposure"] = round(float(np.mean(expo)), 2)
