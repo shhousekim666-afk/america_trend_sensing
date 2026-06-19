@@ -162,18 +162,22 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
             })
         equity_pct = sum(wt for etf, wt in basket.items() if etf not in safe)
 
-        # 섹터 ETF 모멘텀 랭킹
+        # 섹터 ETF 모멘텀 랭킹(표시) + 종목 선별용 stock_gics ETF 모멘텀
         sec_syms = pb.get("sector_etfs", [])
-        sec_mom = _etf_momentum_from_db(session, sec_syms)
+        stock_gics_list = pb.get("stock_gics", [])
+        stock_etfs = [gics_to_etf[g] for g in stock_gics_list if g in gics_to_etf]
+        sec_mom = _etf_momentum_from_db(session, list(dict.fromkeys(sec_syms + stock_etfs)))
         sectors = sorted(
             [{"symbol": s, "name": uni["sector_etfs"].get(s, ""), "mom6m": sec_mom.get(s)} for s in sec_syms],
             key=lambda x: (x["mom6m"] is not None, x["mom6m"] or -999), reverse=True,
         )[:top_sectors]
 
-        # ★ 섹터 일관성: 종목은 '양(+)모멘텀 상위 섹터'에서만 추출(없으면 상위 3개)
-        strong = [s for s in sectors if (s["mom6m"] or -999) > 0]
-        chosen = (strong or sectors)[:4]
-        favored_gics = [etf_to_gics[s["symbol"]] for s in chosen if s["symbol"] in etf_to_gics]
+        # ★ 종목 유니버스 = 플레이북 stock_gics(전략상 유리 업종)로 제한 → 모멘텀 순.
+        #   (섹터 ETF 표시와 분리: 성장은 시클리컬 4섹터만 — 회복 섹터인 IT/반도체 누수 방지)
+        ranked = sorted(stock_etfs, key=lambda s: (sec_mom.get(s) is not None, sec_mom.get(s) or -999), reverse=True)
+        strong = [s for s in ranked if (sec_mom.get(s) or -999) > 0]
+        chosen_etfs = strong or ranked[:4]
+        favored_gics = [etf_to_gics[s] for s in chosen_etfs if s in etf_to_gics]
         cons = session.execute(
             select(SP500Constituent.symbol, SP500Constituent.name, SP500Constituent.gics_sector)
             .where(SP500Constituent.gics_sector.in_(favored_gics))
@@ -247,7 +251,7 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
                     continue
                 final = base_z.get(sym, 0) + size_tilt * size_z.get(sym, 0)
                 if regime == "growth":
-                    final -= 0.4 * max(0.0, dist_z.get(sym, 0))  # 과열 강도 비례 감점(z-스케일)
+                    final -= 0.8 * max(0.0, dist_z.get(sym, 0))  # 과열 강도 비례 감점(Take-Profit 실효화)
                 rows.append({
                     "symbol": sym, "name": cmap[sym]["name"], "gics": cmap[sym]["gics"],
                     "related_etf": gics_to_etf.get(cmap[sym]["gics"], ""),
@@ -265,7 +269,7 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
         "style": pb.get("style", ""), "currency": pb.get("currency", ""),
         "stock_factor": pb.get("stock_factor", ""), "stock_metric": metric,
         "stock_engine": stock_engine, "size_tilt": size_tilt,
-        "stock_sectors": [c["symbol"] for c in chosen],
+        "stock_sectors": chosen_etfs,
         "equity_pct": equity_pct,
         "index": index_recs, "sectors": sectors, "stocks": stocks,
     }
