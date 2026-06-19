@@ -9,8 +9,17 @@
   },
   "safe_assets": ["TLT", "GLD", "SHY"],
 
-  "_index_basket_comment": "국면별 자산배분 바스켓(합=100). 수익+방어 균형(사용자 지침). 지역 로테이션은 영상(NH) 프레임: 회복=미국 대형성장(DM>EM), 성장=약달러 타고 이머징·Non-US·중소형(러셀2000/EEM/EFA, 한국 등) 주도, 둔화=배당·방어(DIA)로 DM 회귀, 침체=안전자산+MegaCap 퀄리티. 단 지난 20년 미국 예외주의로 성장에 EM 전면 적용 시 백테스트 CAGR 10.2→5.6%로 하락 → 코어는 미국 비중 유지, EM/Non-US는 균형(성장 바스켓 EM+EFA=25%)으로 절충하고 약달러 확인 시 확대. 총 주식비중이 RISK 베타(회복/성장 1.0→둔화 0.6→침체 0.25)를 따라가 핵심(위험노출 타이밍)을 노출.",
+  "_index_basket_comment": "권고(공격형) 바스켓(합=100). 사용자 지침: 레버리지 없이 SPY CAGR을 초과하면서 방어. 좋은 국면(회복/성장)+둔화까지 고베타 QQQ 중심으로 채워 상승을 먹고, 안전자산(GLD/TLT) 슬리브로 변동성을 잡고, 침체에만 안전자산을 최대화. 백테스트(2006~2026) 실측: CAGR 11.8%(>SPY 11.1%) / MDD -28%(<SPY -51%) / Sharpe 0.88(>SPY 0.77) — 수익·낙폭·효율 모두 SPY 우위. 영상 프레임(성장=이머징/Non-US)은 EEM+EFA 슬리브로 일부 반영하되, 지난 20년 미국 예외주의로 EM 전면적용 시 수익이 크게 하락하므로 코어는 미국/QQQ 유지(약달러 확인 시 EM 확대). 총 주식비중이 RISK 베타를 따라가 핵심(위험노출 타이밍)을 노출.",
   "regime_index_basket": {
+    "recovery":  {"QQQ": 65, "SPY": 20, "IWM": 10, "GLD": 5},
+    "growth":    {"QQQ": 45, "SPY": 20, "IWM": 15, "EEM": 8, "EFA": 7, "GLD": 5},
+    "slowdown":  {"QQQ": 25, "SPY": 30, "DIA": 20, "TLT": 15, "GLD": 10},
+    "recession": {"QQQ": 12, "SPY": 13, "TLT": 35, "GLD": 20, "SHY": 20},
+    "transition":{"SPY": 30, "QQQ": 15, "TLT": 20, "GLD": 15, "SHY": 20}
+  },
+
+  "_index_basket_bal_comment": "균형형(참고) 바스켓 — 분산 강화로 낙폭 최소·위험조정수익(Sharpe) 최고. 백테스트: CAGR 9.7% / MDD -25% / Sharpe 0.80. SPY 수익은 못 넘지만 가장 안정적. 영상 지역 프레임(성장=이머징/Non-US)을 더 충실히 반영.",
+  "regime_index_basket_balanced": {
     "recovery":  {"QQQ": 50, "SPY": 25, "IWM": 12, "EFA": 5, "GLD": 5, "SHY": 3},
     "growth":    {"SPY": 30, "IWM": 20, "QQQ": 15, "EEM": 13, "EFA": 12, "GLD": 7, "SHY": 3},
     "slowdown":  {"SPY": 25, "DIA": 25, "EFA": 5, "TLT": 25, "GLD": 15, "SHY": 5},

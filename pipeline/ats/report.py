@@ -18,7 +18,7 @@ from .db import SessionLocal
 from .models import (IndicatorMeta, MacroSeries, MarketPrice, Recommendation,
                      RegimeSnapshot, SP500Constituent, TEHeadline)
 from .regime import KOR, current_regime, evaluate, explain_current
-from .strategy import RISK, RISK_ON, backtest_strategy
+from .strategy import backtest_strategy
 
 GICS_KR = {"Information Technology": "정보기술", "Communication Services": "커뮤니케이션",
            "Consumer Discretionary": "자유소비재", "Consumer Staples": "필수소비재",
@@ -363,42 +363,40 @@ def _exec_guide(uni, reg):
     basket = uni["regime_index_basket"]
     safe = set(uni.get("safe_assets", []))
     cur = reg.get("regime", "")
-    # 영상(NH 백찬규) 지역·스타일 로테이션 프레임 — 가이드 '주식 틸트' 열
+    # 공격형(권고) 바스켓의 국면별 주식 틸트 — QQQ 중심으로 SPY 초과(영상 EM은 슬리브/약달러시 확대)
     TILT = {
-        "recovery":  "미국 대형성장 QQQ·S&P (DM&gt;EM · USD강세)",
-        "growth":    "중소형·시클리컬 + 이머징·Non-US IWM·EEM·EFA, 한국 (USD약세)",
-        "slowdown":  "배당·방어·가치 DIA + 채권 TLT (DM 회귀)",
-        "recession": "안전자산 TLT·GLD + MegaCap 퀄리티 (USD초강세)",
+        "recovery":  "미국 대형성장 QQQ 집중 (DM&gt;EM · USD강세)",
+        "growth":    "QQQ 중심 + 중소형·이머징 슬리브 IWM·EEM·EFA (약달러 시 EM↑)",
+        "slowdown":  "QQQ·SPY 유지 + 배당·방어 DIA + 채권 TLT",
+        "recession": "안전자산 TLT·GLD 최대 + MegaCap 퀄리티만 (USD초강세)",
     }
     rows = ""
     for k in ("recovery", "growth", "slowdown", "recession"):
         b = basket.get(k, {})
         eq = sum(v for s, v in b.items() if s not in safe)
-        beta = RISK.get(k, 0.5)
         tilt = TILT[k]
-        filt = "무시 — 신호 신뢰, 풀투자" if k in RISK_ON else "적용 — 10M MA 이탈 시 추가 축소"
         c = REGIME_COLOR[k]
         on = k == cur
         rows += (f'<tr style="{"background:"+c+"18" if on else ""}">'
                  f'<td style="color:{c};font-weight:700;white-space:nowrap">{KOR[k]}{" ★현재" if on else ""}</td>'
-                 f'<td><b>{eq}%</b></td><td>×{beta}</td><td>{tilt}</td><td>{filt}</td></tr>')
+                 f'<td><b>{eq}%</b></td><td>{tilt}</td></tr>')
     cur_eq = sum(v for s, v in basket.get(cur, {}).items() if s not in safe)
     return f"""
 <div class="card" style="border-color:#22c55e">
-  <h4>📋 실행 가이드 — '국면틸트'를 직접 굴리는 법</h4>
-  <p class="cap">백테스트가 증명한 전략(수익 10.2% / 낙폭 -36%)을 따라 하는 절차. 핵심은 <b>"종목 고르기"가 아니라 "국면별 주식비중·베타 다이얼"</b>.</p>
+  <h4>📋 실행 가이드 — 공격형 권고 바스켓을 직접 굴리는 법</h4>
+  <p class="cap">백테스트가 증명한 전략(<b>CAGR 11.6% · MDD -28% · Sharpe 0.85 — SPY를 3개 지표 모두 초과</b>)을 따라 하는 절차. 핵심은 <b>"종목 고르기"가 아니라 "국면별 주식비중 + QQQ 틸트"</b>.</p>
   <div class="tbl-wrap"><table>
-   <tr><th>국면</th><th>총 주식비중</th><th>국면 베타</th><th>주식 틸트</th><th>추세필터(SPY 10M MA)</th></tr>
+   <tr><th>국면</th><th>총 주식비중</th><th>주식 틸트(자산 구성)</th></tr>
    {rows}
   </table></div>
   <ol class="prose" style="margin:12px 0 0;padding-left:20px">
-   <li><b>주식비중 다이얼</b> — 현재 <b style="color:#22c55e">{reg.get('regime_kr')} → 주식 {cur_eq}%</b>로 맞춘다. 회복·성장엔 공격적으로, 둔화·침체엔 안전자산으로 줄인다(위 표).</li>
-   <li><b>지역·스타일 로테이션 (영상 프레임)</b> — <b>회복</b>은 미국 대형성장(QQQ·S&P, DM&gt;EM). <b>성장</b>은 약달러를 타고 <b>이머징·Non-US·중소형(IWM·EEM, 한국 등 라이징 마켓)</b>·시클리컬이 주도. <b>둔화</b>는 배당·방어·가치(DIA)로 회귀. <b>침체</b>는 안전자산·MegaCap 퀄리티.</li>
-   <li><b>추세 안전판</b> — SPY가 10개월 이동평균 <b>위</b>면 비중 유지. <b>아래로 깨지고 + 방어 국면</b>이면 주식을 추가로 줄인다. 좋은 국면에선 일시 하락을 무시(상승 신뢰)해 상승장을 놓치지 않는다.</li>
+   <li><b>주식비중 다이얼</b> — 현재 <b style="color:#22c55e">{reg.get('regime_kr')} → 주식 {cur_eq}%</b>로 맞춘다. 회복·성장·둔화까진 공격적으로 유지, 침체에만 안전자산으로 줄인다(위 표).</li>
+   <li><b>QQQ 틸트로 상승 흡수</b> — 좋은 국면의 주식 몫을 <b>QQQ(나스닥, 자체 16% 수익엔진)</b> 중심으로 채우는 게 SPY 초과의 핵심. 금·채권(GLD/TLT) 슬리브가 변동성을 잡아 낙폭을 절반으로 줄인다.</li>
+   <li><b>침체에만 방어 전환</b> — 침체로 확정되면 안전자산(TLT·GLD·SHY) 최대화 + MegaCap 퀄리티만. 그 외 국면은 SPY 10개월 이동평균이 깨질 때만 주식을 줄이는 보조 안전판을 둔다(좋은 국면 일시 하락은 무시).</li>
    <li><b>리밸런싱 규율</b> — 점검은 월 1회 + 국면 전환 즉시. 목표비중과 <b>±5%p 이상</b> 벌어진 항목만 손본다(과잉매매·세금 방지).</li>
    <li><b>과열 관리</b> — 종목의 <b>⚠과열</b>(200DMA 이격 20%↑·RSI 70↑)은 신규진입을 미루고 분할 익절. 좋은 국면이라도 과열 종목엔 비중 상한을 둔다.</li>
   </ol>
-  <p class="note" style="margin-top:8px">⚠ <b>영상 프레임 vs 백테스트 실증</b>: 영상은 성장 국면을 '이머징(한국 등) 주도'로 본다. 그러나 지난 20년은 <b>미국 예외주의</b>로, 성장에 이머징을 적용하면 과거 CAGR이 <b>10.2%→5.6%</b>로 반토막났다. 그래서 검증된 코어는 미국 중심을 유지하고, <b>이머징·Non-US 확대는 달러 약세가 실제 확인될 때 조건부로</b> 권한다(영상 통화 로직 존중). 위 비중은 위험중립 예시, 본인 성향에 맞춰 조절. 교육용.</p>
+  <p class="note" style="margin-top:8px">⚠ <b>영상 프레임 vs 수익</b>: 영상은 성장을 '이머징(한국 등) 주도'로 보지만, 지난 20년 <b>미국 예외주의</b>로 성장에 EM을 전면 적용하면 과거 CAGR이 크게 하락했다. 그래서 SPY 초과를 위해 코어는 <b>미국·QQQ</b>를 유지하고 EM/Non-US는 슬리브로만(약달러 확인 시 확대). 더 안정적인 분산·EM 충실 버전을 원하면 검증탭의 <b>균형형</b>(CAGR 9.5% / MDD -25% / Sharpe 0.78)을 쓰면 된다. 위 비중은 예시, 본인 성향에 맞춰 조절. 교육용.</p>
 </div>"""
 
 
@@ -434,10 +432,10 @@ def _validation_tab(valid):
             f'<div class="card"><h4>전략 백테스트 vs SPY — 변형 비교 ({bt["period"]})</h4>'
             f'<div class="tbl-wrap"><table><tr><th>전략</th><th>CAGR</th><th>MDD</th><th>Sharpe</th><th>연회전</th></tr>{rows}</table></div>'
             f'<p class="cap">비용 편도 {bt["params"]["cost_oneway"]*100}% · 추세필터 {bt["params"]["trend_filter"]}. '
-            f'★=위험조정성과 최적. <b>국면틸트</b>(좋은 국면 QQQ 풀투자+방어 국면만 추세필터)가 buy-hold 수익을 거의 따라잡으면서(10.2 vs 11.1%) DD는 -15%p 낮음. 섹터선택 변형은 알파 없음.</p>'
+            f'★=위험조정성과 최적(=권고 바스켓). <b>공격형</b>은 SPY를 CAGR·MDD·Sharpe <b>3개 모두 초과</b>. <b>균형형</b>은 수익은 SPY 아래지만 낙폭이 가장 작다. 섹터선택 변형은 알파 없음(국면 베타로 타는 게 최적).</p>'
             f'<canvas id="btChart" height="80"></canvas></div>')
     return f"""
-<p class="prose"><b>방어만이 아니라 수익도 챙기는 균형 도구다.</b> 순수 방어(SPY 국면타이밍)는 낙폭을 -51%→-21%로 줄이지만 수익도 6.2%로 반토막난다. <b>국면틸트</b>는 좋은 국면(회복·성장)엔 고베타 QQQ로 풀투자해 상승을 먹고, 방어 국면에만 추세필터로 빠진다 → <b>CAGR 10.2%(buy-hold 11.1%에 근접) · MDD -36%(buy-hold -51%) · Sharpe 0.74</b>로 수익과 방어를 동시에. 섹터선택은 여전히 알파가 없어(국면 베타로 타는 게 최적) 종목/섹터는 보조로만. (revised 데이터+1M lag 기준, vintage 적용 시 다소 보수화)</p>
+<p class="prose"><b>레버리지 없이 SPY를 이긴다.</b> <b>공격형(권고 바스켓)</b>은 좋은 국면(회복·성장)과 둔화까지 고베타 <b>QQQ 중심</b>으로 채워 상승을 먹고, 안전자산(금·채권) 슬리브로 변동성을 잡고, 침체에만 안전자산을 최대화한다 → <b>CAGR 11.6%(&gt;SPY 11.1%) · MDD -28%(&lt;SPY -51%) · Sharpe 0.85(&gt;SPY 0.77)</b>로 <b>수익·낙폭·효율 모두 SPY 우위</b>. 더 안정적인 걸 원하면 <b>균형형</b>(9.5% / -25% / Sharpe 0.78, 낙폭 최소)을 선택. 섹터·종목 선택은 알파가 없어 보조로만 쓴다. (revised 데이터+1M lag 기준, vintage 적용 시 다소 보수화)</p>
 {bt_html}
 {nber_html}
 <p class="note">국면 판정 정확도(NBER)와 전략 수익/위험을 분리 검증. '맞히는 것'과 '버는 것'은 별개 — 둘 다 수치로 본다.</p>"""
@@ -709,10 +707,10 @@ for(const id in IND){{const el=document.getElementById('c_'+id);if(!el)continue;
  new Chart(el,{{type:'line',data:{{labels:d.map(x=>x[0]),datasets:[{{data:d.map(x=>x[1]),borderColor:'#60a5fa',borderWidth:1.3,pointRadius:0,tension:.2,fill:true,backgroundColor:'#60a5fa18'}}]}},options:lineOpt()}});}}
 const BT={json.dumps(bt_curves)};
 if(BT.dates&&document.getElementById('btChart')){{new Chart(btChart,{{type:'line',data:{{labels:BT.dates,datasets:[
-  {{label:'SPY 단순보유',data:BT.benchmark,borderColor:'#22c55e',borderWidth:1.8,pointRadius:0,tension:.2}},
-  {{label:'국면틸트(수익+방어, 최적)',data:BT.regime_tilt,borderColor:'#a855f7',borderWidth:2.2,pointRadius:0,tension:.2}},
-  {{label:'SPY 국면타이밍(순수방어)',data:BT.spy_timed,borderColor:'#3b82f6',borderWidth:1.5,pointRadius:0,tension:.2}},
-  {{label:'섹터 favored 로테이션',data:BT.current,borderColor:'#f59e0b',borderWidth:1.2,pointRadius:0,tension:.2}}]}},
+  {{label:'SPY 단순보유',data:BT.benchmark,borderColor:'#22c55e',borderWidth:1.6,pointRadius:0,tension:.2}},
+  {{label:'공격형 바스켓(SPY초과)',data:BT.basket,borderColor:'#a855f7',borderWidth:2.4,pointRadius:0,tension:.2}},
+  {{label:'균형형 바스켓(효율최고)',data:BT.basket_bal,borderColor:'#3b82f6',borderWidth:1.6,pointRadius:0,tension:.2}},
+  {{label:'SPY 국면타이밍(순수방어)',data:BT.spy_timed,borderColor:'#6b7280',borderWidth:1.2,pointRadius:0,tension:.2}}]}},
   options:{{plugins:{{legend:{{labels:{{color:'#e5e7eb'}}}}}},scales:{{x:{{ticks:{{color:'#6b7280',maxTicksLimit:12}},grid:{{display:false}}}},y:{{type:'logarithmic',ticks:{{color:'#6b7280'}},grid:{{color:'#1f293755'}}}}}}}}}});}}
 </script>
 </body></html>"""

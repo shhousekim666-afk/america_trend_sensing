@@ -100,19 +100,33 @@ def sel_regime_tilt(prev, reg, rets, mom6, spym, pb):
     return {"SPY": 1.0}
 
 
-# (key, label, select_fn, filter_mode): filter_mode='all' 항상필터 / 'defensive' 방어국면만
+_BASKET = {}      # 공격형(권고) 바스켓 — universe regime_index_basket
+_BASKET_BAL = {}  # 균형형(참고) 바스켓 — universe regime_index_basket_balanced
+
+
+def sel_basket(prev, reg, rets, mom6, spym, pb):
+    """공격형 — 실제 화면 권고 바스켓 그대로(검증=권고 일치). QQQ 중심+안전슬리브."""
+    b = _BASKET.get(reg if isinstance(reg, str) and reg in _BASKET else "transition", {})
+    return {k: v / 100 for k, v in b.items()}
+
+
+def sel_basket_bal(prev, reg, rets, mom6, spym, pb):
+    """균형형 — 분산 강화 바스켓(낙폭 최소·Sharpe 최고)."""
+    b = _BASKET_BAL.get(reg if isinstance(reg, str) and reg in _BASKET_BAL else "transition", {})
+    return {k: v / 100 for k, v in b.items()}
+
+
+# (key, label, select_fn, filter_mode, use_beta): filter_mode='all'/'defensive'/'none'
+# 바스켓은 비중 자체가 위험노출을 표현 → use_beta=False, 필터 없음(방어 내장).
 VARIANTS = [
-    ("regime_tilt", "국면틸트(QQQ공격+선택필터) ★수익방어균형", sel_regime_tilt, "defensive"),
-    ("spy_timed", "SPY 국면타이밍(순수방어)", sel_spy, "all"),
-    ("current", "섹터 favored 상위4 등가", sel_current, "all"),
-    ("top2", "섹터 상위2 집중", sel_top2, "all"),
-    ("momwt", "섹터 모멘텀가중 상위4", sel_momwt, "all"),
-    ("relstr", "섹터 상대강도(SPY초과)", sel_relstr, "all"),
-    ("allmom", "섹터 전체모멘텀 상위4(국면무시)", sel_allmom, "all"),
+    ("basket", "공격형 — 권고 바스켓(QQQ중심+침체방어) ★SPY초과", sel_basket, "none", False),
+    ("basket_bal", "균형형 — 분산 바스켓(낙폭최소·효율최고)", sel_basket_bal, "none", False),
+    ("spy_timed", "SPY 국면타이밍(순수방어)", sel_spy, "all", True),
+    ("current", "섹터 favored 상위4(섹터선택 알파없음 참고)", sel_current, "all", True),
 ]
 
 
-def _run(idx, rets, mom6, spym, regime_s, spy_off, pb, select_fn, filter_mode="all"):
+def _run(idx, rets, mom6, spym, regime_s, spy_off, pb, select_fn, filter_mode="all", use_beta=True):
     eq, prev_w = 1.0, {}
     curve, turns, expo = [], [], []
     for t in idx:
@@ -121,7 +135,7 @@ def _run(idx, rets, mom6, spym, regime_s, spy_off, pb, select_fn, filter_mode="a
             continue
         prev = rets.index[loc - 1]
         reg = regime_s.get(prev)
-        beta = RISK.get(reg, 0.5) if isinstance(reg, str) else 0.5
+        beta = (RISK.get(reg, 0.5) if isinstance(reg, str) else 0.5) if use_beta else 1.0
         apply_filter = filter_mode == "all" or (filter_mode == "defensive" and reg not in RISK_ON)
         w = {}
         if not (apply_filter and bool(spy_off.get(prev, False))):
@@ -154,6 +168,10 @@ def _stats(curve, label, key):
 def backtest_strategy(start="2006-01-01") -> dict:
     uni = load_universe()
     pb = uni["regime_playbook"]
+    _BASKET.clear()
+    _BASKET.update(uni.get("regime_index_basket", {}))  # 공격형(권고) 바스켓 주입
+    _BASKET_BAL.clear()
+    _BASKET_BAL.update(uni.get("regime_index_basket_balanced", {}))  # 균형형(참고)
     sector_syms = list(uni["sector_etfs"])
     asset_syms = list(uni.get("index_etfs", {}))  # SPY/QQQ/IWM/DIA/TLT/GLD/SHY 등 — 국면틸트용
     hist = classify_history()
@@ -182,8 +200,8 @@ def backtest_strategy(start="2006-01-01") -> dict:
     benchmark = _stats(bench, "SPY 단순보유", "benchmark")
 
     variants, curves = [], {"dates": [t.date().isoformat() for t, _ in bench], "benchmark": [round(v, 3) for _, v in bench]}
-    for key, label, fn, fmode in VARIANTS:
-        curve, turns, expo = _run(idx, rets, mom6, spym, regime_s, spy_off, pb, fn, fmode)
+    for key, label, fn, fmode, ubeta in VARIANTS:
+        curve, turns, expo = _run(idx, rets, mom6, spym, regime_s, spy_off, pb, fn, fmode, ubeta)
         st = _stats(curve, label, key)
         st["ann_turnover"] = round(np.mean(turns) * 12, 2)
         st["avg_exposure"] = round(float(np.mean(expo)), 2)
