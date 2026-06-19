@@ -18,7 +18,7 @@ from .db import SessionLocal
 from .models import (IndicatorMeta, MacroSeries, MarketPrice, Recommendation,
                      RegimeSnapshot, SP500Constituent, TEHeadline)
 from .regime import KOR, current_regime, evaluate, explain_current
-from .strategy import backtest_strategy
+from .strategy import RISK, RISK_ON, backtest_strategy
 
 GICS_KR = {"Information Technology": "정보기술", "Communication Services": "커뮤니케이션",
            "Consumer Discretionary": "자유소비재", "Consumer Staples": "필수소비재",
@@ -301,6 +301,43 @@ def _basis_panel(explain, reg):
 </div>"""
 
 
+def _exec_guide(uni, reg):
+    """수익+방어 균형 전략을 실제로 굴리는 방법 — 국면 다이얼 + 5단계 절차."""
+    basket = uni["regime_index_basket"]
+    safe = set(uni.get("safe_assets", []))
+    cur = reg.get("regime", "")
+    rows = ""
+    for k in ("recovery", "growth", "slowdown", "recession"):
+        b = basket.get(k, {})
+        eq = sum(v for s, v in b.items() if s not in safe)
+        beta = RISK.get(k, 0.5)
+        tilt = "QQQ 고베타(상승 극대화)" if k in RISK_ON else ("SPY·DIA 저베타 + 채권" if k == "slowdown" else "안전자산 압축(TLT/GLD)")
+        filt = "무시 — 신호 신뢰, 풀투자" if k in RISK_ON else "적용 — 10M MA 이탈 시 추가 축소"
+        c = REGIME_COLOR[k]
+        on = k == cur
+        rows += (f'<tr style="{"background:"+c+"18" if on else ""}">'
+                 f'<td style="color:{c};font-weight:700;white-space:nowrap">{KOR[k]}{" ★현재" if on else ""}</td>'
+                 f'<td><b>{eq}%</b></td><td>×{beta}</td><td>{tilt}</td><td>{filt}</td></tr>')
+    cur_eq = sum(v for s, v in basket.get(cur, {}).items() if s not in safe)
+    return f"""
+<div class="card" style="border-color:#22c55e">
+  <h4>📋 실행 가이드 — '국면틸트'를 직접 굴리는 법</h4>
+  <p class="cap">백테스트가 증명한 전략(수익 10.2% / 낙폭 -36%)을 따라 하는 절차. 핵심은 <b>"종목 고르기"가 아니라 "국면별 주식비중·베타 다이얼"</b>.</p>
+  <div class="tbl-wrap"><table>
+   <tr><th>국면</th><th>총 주식비중</th><th>국면 베타</th><th>주식 틸트</th><th>추세필터(SPY 10M MA)</th></tr>
+   {rows}
+  </table></div>
+  <ol class="prose" style="margin:12px 0 0;padding-left:20px">
+   <li><b>주식비중 다이얼</b> — 현재 <b style="color:#22c55e">{reg.get('regime_kr')} → 주식 {cur_eq}%</b>로 맞춘다. 회복·성장엔 공격적으로, 둔화·침체엔 안전자산으로 줄인다(위 표).</li>
+   <li><b>고베타 틸트</b> — 좋은 국면(회복·성장)엔 주식 몫을 <b>QQQ(나스닥)</b> 중심으로 채워 상승을 더 먹는다. 방어 국면엔 SPY·DIA + 채권(TLT)·금(GLD).</li>
+   <li><b>추세 안전판</b> — SPY가 10개월 이동평균 <b>위</b>면 비중 유지. <b>아래로 깨지고 + 방어 국면</b>이면 주식을 추가로 줄인다. 좋은 국면에선 일시 하락을 무시(상승 신뢰)해 상승장을 놓치지 않는다.</li>
+   <li><b>리밸런싱 규율</b> — 점검은 월 1회 + 국면 전환 즉시. 목표비중과 <b>±5%p 이상</b> 벌어진 항목만 손본다(과잉매매·세금 방지).</li>
+   <li><b>과열 관리</b> — 종목의 <b>⚠과열</b>(200DMA 이격 20%↑·RSI 70↑)은 신규진입을 미루고 분할 익절. 좋은 국면이라도 과열 종목엔 비중 상한을 둔다.</li>
+  </ol>
+  <p class="note" style="margin-top:8px">⚠ 교육용. 레버리지·개별종목 집중은 변동성을 키운다. 위 비중은 위험중립 기준 예시이며 본인 위험성향에 맞춰 조절.</p>
+</div>"""
+
+
 def _validation_tab(valid):
     """검증 탭: NBER 정량검증 + 전략 백테스트(자산곡선·지표)."""
     nber = valid.get("nber", {})
@@ -476,7 +513,11 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
   .grid,.igrid,.rgrid{{grid-template-columns:1fr;gap:12px}}
   .tab-btn{{padding:8px 12px;font-size:13px;flex:1;min-width:0}}
   .card{{padding:12px}} .card .big{{font-size:22px}}
-  table{{font-size:12px}} th,td{{padding:5px 6px;word-break:break-word}}
+  table{{font-size:12px}} th,td{{padding:5px 5px;vertical-align:top}}
+  th{{white-space:nowrap;font-size:11px}}
+  td.sym{{white-space:nowrap;font-weight:700}}
+  td b,td .sub,.mtr,.dsc{{overflow-wrap:anywhere}}
+  .sub{{font-size:11px}}
   .mobhide{{display:none}}
   .mtr{{white-space:normal}}
   .tbl-wrap table{{min-width:0}}
@@ -512,6 +553,10 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <h2>판정 근거 (왜 {reg.get('regime_kr')}인가)</h2>
 {_basis_panel(explain, reg)}
 
+<h3 style="margin-top:18px">핵심 지표 실측값 <span style="font-size:11px;color:#6b7280">— 위 판정의 입력 데이터 (Trading Economics, 사용자 지정 소스)</span></h3>
+<p class="cap">위 판정 근거의 선행·후행 축을 움직이는 실제 현재값. <b>실업률(후행)</b>이 직전월·예측치 대비 연속 상승하면 침체 확정 신호, <b>ISM PMI(선행)</b>가 50 이상이면 제조업 확장 → 선행 DI를 끌어올림.</p>
+<div class="grid">{te_cards}</div>
+
 <h2>3축 확산지수 추이 (Diffusion Index)</h2>
 <p class="cap">배경색 = 그 시점 경기 국면, 선 = 선행·동행·후행 방향성(3개월 평활, +1 확장 / −1 수축). 세 선이 모두 +로 정렬→성장, 선행부터 −로 꺾임→둔화·침체.</p>
 <div>{legend}</div>
@@ -520,10 +565,6 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <h2>연도별 경기 국면 히트맵 (2000~)</h2>
 <p class="cap">한 칸 = 한 달의 확정 국면. 회복→성장→둔화→침체 순환을 한눈에.</p>
 <div>{legend}</div>{_heatmap(timeline)}
-
-<h2>TE 현재값 + 예측치 <span style="font-size:11px;color:#6b7280">(사용자 지정 소스)</span></h2>
-<p class="cap">실업률(후행)은 직전월·예측치 대비 연속 상승 시 침체 확정 신호. PMI(선행)는 50 이상이면 제조업 확장.</p>
-<div class="grid">{te_cards}</div>
 
 <h2>투자 추천 — {reg.get('regime_kr')} 국면</h2>
 <p class="cap">국면 → 유리 섹터 → 모멘텀 랭킹. 음수(빨강)는 이론상 유리 섹터라도 현재 약세임을 뜻함.</p>
@@ -552,6 +593,8 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 
 <!-- ===== 탭3 검증 ===== -->
 <div class="tab" id="val">
+<h2>실행 가이드 — 수익+방어 균형 전략</h2>
+{_exec_guide(uni, reg)}
 <h2>전략 검증 — "맞히는가" & "버는가"</h2>
 {_validation_tab(valid)}
 </div>
