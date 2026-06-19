@@ -477,7 +477,9 @@ def _validation_tab(valid):
                       f'<td>{r["multiple"]}x</td><td>{irr}</td><td>{r["mdd"]*100:.0f}%</td></tr>')
         dca_html = (
             f'<div class="card"><h4>💰 적립식(매달 정액 납입) 백테스트 — {n_mo//12}년 {n_mo%12}개월</h4>'
-            f'<p class="cap">목돈 한 번이 아니라 <b>매달 같은 금액</b>을 전략 비중대로 납입했을 때. '
+            f'<p class="cap">목돈 한 번이 아니라 <b>매달 같은 금액</b>을 납입. <b>공격형·균형형</b>은 현실적으로 — '
+            f'국면 <b>전환 시에만</b> 기존 보유분을 새 국면 비중으로 교체(겹치는 QQQ 등은 유지, 바뀐 부분만 매매)하고, '
+            f'그 사이 신규 납입금은 <b>현재 국면 자산</b>으로 매입. <b>SPY·QQQ</b>는 단순 적립(교체 없음). '
             f'수익배수=최종평가액÷총납입, IRR=납입시점 반영 연환산수익률(money-weighted), MDD=평가액 최대낙폭.</p>'
             f'<div class="tbl-wrap"><table><tr><th>전략</th><th>수익배수</th><th>연환산 IRR</th><th>평가액 MDD</th></tr>{drows}</table></div>'
             f'<canvas id="dcaChart" height="80"></canvas>'

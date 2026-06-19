@@ -244,7 +244,8 @@ def backtest_strategy(start="2006-01-01") -> dict:
         "benchmark": benchmark, "variants": variants, "best": best["key"],
         "params": {"cost_oneway": COST, "trend_filter": "SPY 10M MA", "risk_beta": RISK},
         "curves": curves,
-        "dca": _build_dca(raw_curves),
+        "dca": _build_dca(raw_curves, rets, idx, regime_s,
+                          {"basket": _BASKET, "basket_bal": _BASKET_BAL}),
     }
 
 
@@ -257,21 +258,17 @@ def _monthly_rets_from_curve(curve):
     return out
 
 
-def _dca_sim(rets, contrib=1.0):
-    """적립식: 매월 contrib 납입 후 그달 수익 적용. money-weighted 수익률(IRR) + 평가액 MDD."""
-    V, paid, vals, paids = 0.0, 0.0, [], []
-    for r in rets:
-        V = (V + contrib) * (1 + r)
-        paid += contrib
-        vals.append(V); paids.append(paid)
-    n = len(rets)
+def _dca_metrics(vals, paids, contrib):
+    """평가액·납입 경로 → 수익배수 / money-weighted IRR(이분법) / 평가액 MDD."""
+    n = len(vals)
+    V, paid = (vals[-1], paids[-1]) if n else (0.0, 0.0)
     if n == 0 or V <= 0:
         return None
 
     def npv(rm):  # 월 t(0..n-1) 납입 -contrib, 종료시 +V
         return sum(-contrib / (1 + rm) ** t for t in range(n)) + V / (1 + rm) ** n
     irr = None
-    if npv(-0.5) > 0 > npv(1.0):  # 부호변화 확인 후 이분법
+    if npv(-0.5) > 0 > npv(1.0):
         lo, hi = -0.5, 1.0
         for _ in range(80):
             mid = (lo + hi) / 2
@@ -290,15 +287,63 @@ def _dca_sim(rets, contrib=1.0):
             "vals": vals, "paids": paids}
 
 
-def _build_dca(raw_curves):
-    """공격형/균형형/SPY 적립식(매월 1단위) 비교 — 동일 납입 흐름에 전략별 수익만 차이."""
-    keys = [("basket", "공격형 적립"), ("basket_bal", "균형형 적립"),
-            ("benchmark", "SPY 적립"), ("qqq_bh", "QQQ 적립")]
-    rows, curves = [], {}
-    for k, lab in keys:
-        if k not in raw_curves:
+def _dca_single(rets, contrib=1.0):
+    """단일자산(SPY/QQQ) 적립 — 리밸런싱 없음."""
+    V, paid, vals, paids = 0.0, 0.0, [], []
+    for r in rets:
+        V = (V + contrib) * (1 + r)
+        paid += contrib
+        vals.append(V); paids.append(paid)
+    return _dca_metrics(vals, paids, contrib)
+
+
+def _dca_basket(rets, idx, regime_s, basket, contrib=1.0, cost=COST):
+    """현실적 국면 적립(사용자 요청): 종목별 포지션 추적.
+    - 매월 신규 납입금은 '현재 국면' 자산으로만 매입(겹치는 자산은 자연 누적).
+    - 국면 전환 시에만 기존 보유분 전체를 새 국면 비중으로 교체(겹치는 QQQ 등은 유지, 바뀐 부분만 매매) — 회전비용은 바뀐 부분에만.
+    - 같은 국면 구간에선 기존 보유분 리밸런싱 안 함(winner 가 흐르게 둠)."""
+    pos: dict[str, float] = {}
+    paid, vals, paids, prev_reg = 0.0, [], [], None
+    for t in idx:
+        loc = rets.index.get_loc(t)
+        if loc < 11:
             continue
-        d = _dca_sim(_monthly_rets_from_curve(raw_curves[k]))
+        reg = regime_s.get(rets.index[loc - 1])  # 1M lag(타 백테스트와 동일)
+        tb = basket.get(reg if isinstance(reg, str) and reg in basket else "transition", {})
+        tgt = {a: w / 100.0 for a, w in tb.items()}
+        # 전환 시에만 기존 보유분 교체(바뀐 부분 회전비용)
+        if pos and reg != prev_reg:
+            V = sum(pos.values())
+            if V > 0:
+                allk = set(pos) | set(tgt)
+                tofrac = sum(abs(tgt.get(a, 0) - pos.get(a, 0) / V) for a in allk)
+                Vnet = V * (1 - tofrac * cost)
+                pos = {a: Vnet * w for a, w in tgt.items()}
+        # 신규 납입금 → 현재 국면 자산
+        for a, w in tgt.items():
+            pos[a] = pos.get(a, 0.0) + contrib * w
+        paid += contrib
+        # 그달 수익
+        for a in list(pos):
+            r = rets.at[t, a] if (a in rets.columns and pd.notna(rets.at[t, a])) else 0.0
+            pos[a] *= (1 + r)
+        vals.append(sum(pos.values())); paids.append(paid)
+        prev_reg = reg
+    return _dca_metrics(vals, paids, contrib)
+
+
+def _build_dca(raw_curves, rets, idx, regime_s, baskets):
+    """적립식 비교: 공격형·균형형은 현실적 국면전환 적립(_dca_basket),
+    SPY·QQQ는 단일자산 단순 적립(_dca_single)."""
+    rows, curves = [], {}
+    plan = [
+        ("basket", "공격형 적립", lambda: _dca_basket(rets, idx, regime_s, baskets["basket"])),
+        ("basket_bal", "균형형 적립", lambda: _dca_basket(rets, idx, regime_s, baskets["basket_bal"])),
+        ("benchmark", "SPY 적립", lambda: _dca_single(_monthly_rets_from_curve(raw_curves["benchmark"]))),
+        ("qqq_bh", "QQQ 적립", lambda: _dca_single(_monthly_rets_from_curve(raw_curves["qqq_bh"]))),
+    ]
+    for k, lab, fn in plan:
+        d = fn()
         if not d:
             continue
         rows.append({"key": k, "label": lab, "multiple": d["multiple"],
@@ -306,5 +351,5 @@ def _build_dca(raw_curves):
         curves[k] = [round(v, 2) for v in d["vals"]]
         if "paid" not in curves:
             curves["paid"] = [round(v, 2) for v in d["paids"]]
-            curves["dates"] = [t.date().isoformat() for t, _ in raw_curves[k]]
+            curves["dates"] = [t.date().isoformat() for t, _ in raw_curves["benchmark"]]
     return {"rows": rows, "curves": curves}
