@@ -13,7 +13,7 @@ trading_system/
 pipeline/ats.db
 pipeline/*.db
 pipeline/te_charts/
-pipeline/report.html
+# report.html 은 git 으로 최신 대시보드를 보기 위해 추적함(CI 가 매 실행마다 자동 커밋)
 pipeline/logs/
 **/logs/
 *.log
