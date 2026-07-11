@@ -9,7 +9,7 @@ on:
     - cron: "0 13 * * 1"    # 매주 월요일 22:00 KST — 가격/추천 갱신
 
 permissions:
-  contents: read
+  contents: write        # 갱신된 report.html 을 main 에 자동 커밋
   pages: write
   id-token: write
 
@@ -33,6 +33,17 @@ jobs:
       - name: Run pipeline (collect → regime → recommend → report)
         working-directory: pipeline
         run: python -m ats.cli update
+      - name: Commit refreshed dashboard back to repo   # git 으로 봐도 최신 유지
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pipeline/report.html
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 스킵"
+          else
+            git commit -m "chore: 대시보드 자동 갱신 ($(date -u +%Y-%m-%d)) [skip ci]"
+            git push
+          fi
       - name: Assemble site
         run: |
           mkdir -p _site
