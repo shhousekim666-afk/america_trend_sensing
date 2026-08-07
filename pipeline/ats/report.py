@@ -501,6 +501,23 @@ def _validation_tab(valid):
 <p class="note">국면 판정 정확도(NBER)와 전략 수익/위험을 분리 검증. '맞히는 것'과 '버는 것'은 별개 — 둘 다 수치로 본다.</p>"""
 
 
+_MONTHLY_MACRO = ("payems", "indpro", "retail_sales", "unrate", "cpi",
+                  "wages", "tcu", "new_orders", "umcsent")
+
+
+def _data_freshness():
+    """월간 매크로 최신월(FRED 발표 기준) + 시장가격 최신일 → 데이터 최신성 배지용."""
+    with SessionLocal() as s:
+        mac = s.execute(
+            select(func.max(MacroSeries.obs_date))
+            .where(MacroSeries.series_id.in_(_MONTHLY_MACRO))).scalar()
+        prc = s.execute(select(func.max(MarketPrice.obs_date))).scalar()
+    # 월간 지표는 해당 월 데이터 → "YYYY년 M월" 표기
+    mac_kr = f"{mac.year}년 {mac.month}월" if mac else "—"
+    prc_kr = f"{prc.month}/{prc.day}" if prc else "—"
+    return mac_kr, prc_kr
+
+
 def build(out_path=None):
     (reg, timeline, rec_by, te_list, sectors, indicators,
      uni, stocks_detail, explain, valid) = _gather()
@@ -530,6 +547,13 @@ def build(out_path=None):
     prov_badge = ('<span style="background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b;'
                   'border-radius:20px;padding:1px 9px;font-weight:700;font-size:12px">⚠ 잠정 (3개월 확정 전)</span>'
                   if reg.get("provisional") else '<span style="color:#22c55e;font-weight:700">✓ 확정</span>')
+
+    # 데이터 최신성(오해 방지): 국면은 월간 매크로 발표 주기에 묶임 / 시장가는 매주 갱신
+    _mac_kr, _prc_kr = _data_freshness()
+    freshness = (
+        '<div class="fresh">📊 <b>월간 지표</b> {mac}까지 (FRED 최신 발표) · '
+        '<b>시장가격</b> {prc} 갱신<span class="mobhide"> · 국면 날짜는 월간 지표 발표 주기를 따릅니다</span></div>'
+    ).format(mac=_mac_kr, prc=_prc_kr)
 
     # 영상 슬라이드 이미지 (상대경로 — 프로젝트 루트)
     imgs = [("경기 국면 판단 기준 + 4국면 흐름", "../IMG_2127.PNG"),
@@ -594,6 +618,8 @@ h1{{font-size:21px}} h2{{font-size:15px;color:#93c5fd;margin-top:30px;border-bot
 .tab{{display:none}} .tab.on{{display:block}}
 .banner{{background:linear-gradient(135deg,{rc}22,#111827);border:1px solid {rc};border-radius:14px;padding:20px 24px;display:flex;gap:28px;align-items:center;flex-wrap:wrap}}
 .banner .rg{{font-size:34px;font-weight:700;color:{rc}}}
+.fresh{{background:#111827;border:1px solid #1f2937;border-radius:9px;padding:8px 14px;margin-top:8px;font-size:12.5px;color:#9ca3af}}
+.fresh b{{color:#cbd5e1;font-weight:600}}
 .meta{{color:#9ca3af;font-size:13px;line-height:1.7}}
 .scores{{display:flex;gap:18px}} .scores div{{text-align:center}} .scores b{{font-size:22px}}
 .stance{{background:#0b0f17;border:1px solid #22c55e55;border-radius:10px;padding:8px 14px;line-height:1.5}}
@@ -683,6 +709,7 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
   </div>
   <div class="meta">침체 트리거: <span class="alert {'warn' if trig.get('alert') else 'ok'}">{'⚠ 경보' if trig.get('alert') else '정상'}</span><br>{trig.get('detail','')}</div>
 </div>
+{freshness}
 
 <h2>판정 근거 (왜 {reg.get('regime_kr')}인가)</h2>
 {_basis_panel(explain, reg)}
