@@ -533,6 +533,9 @@ def build(out_path=None):
         f'<td><b>{s["name"]}</b></td><td>{s["gics_kr"]} · <span class="sub">{s["sub"]}</span></td>'
         f'<td class="mtr">{_hot_badge(s["metric"])}</td><td class="dsc mobhide">{s["desc"]}</td></tr>'
         for s in stocks_detail)
+    # 종목이 실제로 어느 섹터에서 뽑혔는지(패널과 정합) — 설명 문구 동적화
+    _picked_secs = list(dict.fromkeys(s["gics_kr"] for s in stocks_detail))
+    picked_secs_kr = "·".join(_picked_secs) if _picked_secs else "유리 섹터"
 
     # 자산배분 바스켓 총 주식비중(현재 국면)
     _breg = reg.get("regime")
@@ -737,8 +740,8 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
   <div class="card"><h4>섹터 ETF (6M 모멘텀순)</h4>{sector_bars}</div>
 </div>
 <div class="card" style="margin-top:16px">
-  <h4>S&P500 개별종목 — {reg.get('regime_kr')} 국면 시클리컬, 팩터 상위</h4>
-  <p class="note" style="margin:0 0 10px">선별 방식: <b>국면 → 유리 섹터(금융·산업재·에너지·소재) → 팩터 랭킹</b>. 기본 엔진은 6M 모멘텀, 옵션으로 trading_america 펀더멘털 3팩터(V/M/D). 숫자가 높을수록 상위.</p>
+  <h4>S&P500 개별종목 — {reg.get('regime_kr')} 국면 주도 섹터, 팩터 상위</h4>
+  <p class="note" style="margin:0 0 10px">선별 방식: <b>위 섹터 패널의 양(+)모멘텀 favored 섹터 → 그 안에서 팩터 랭킹</b>. 즉 <b>화면에 뜨는 뜨거운 섹터({picked_secs_kr})에서 종목을 뽑습니다</b>(패널·종목 정합). 기본 엔진 6M 모멘텀, 옵션 trading_america 펀더멘털 3팩터(V/M/D). 음수 스코어(평균 이하)는 제외.</p>
   <div class="tbl-wrap"><table>
    <tr><th>#</th><th>종목</th><th>종목명</th><th>섹터 · 세부업종</th><th>지표</th><th class="mobhide">설명</th></tr>
    {stock_rows}

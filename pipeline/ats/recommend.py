@@ -19,7 +19,8 @@ from .regime import current_regime
 
 _TRADING_6M = 126
 _TRADING_3M = 63
-_MAX_PER_SECTOR = 5      # 종목 섹터 분산
+_MAX_PER_SECTOR = 3      # 종목 섹터 분산(단일 섹터 몰빵 방지 — 예: 에너지 5개 방지)
+_MIN_STOCKS = 6          # 음수 스코어 컷 후 최소 노출 개수(빈 목록 방지)
 _CANDIDATE_CAP = 45      # 펀더멘털 스코어링 전 모멘텀 프리필터 상한(속도)
 
 
@@ -162,19 +163,18 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
             })
         equity_pct = sum(wt for etf, wt in basket.items() if etf not in safe)
 
-        # 섹터 ETF 모멘텀 랭킹(표시) + 종목 선별용 stock_gics ETF 모멘텀
+        # 섹터 ETF 모멘텀 랭킹(패널) — 이 favored 섹터 집합이 곧 종목 유니버스의 소스.
         sec_syms = pb.get("sector_etfs", [])
-        stock_gics_list = pb.get("stock_gics", [])
-        stock_etfs = [gics_to_etf[g] for g in stock_gics_list if g in gics_to_etf]
-        sec_mom = _etf_momentum_from_db(session, list(dict.fromkeys(sec_syms + stock_etfs)))
+        sec_mom = _etf_momentum_from_db(session, sec_syms)
         sectors = sorted(
             [{"symbol": s, "name": uni["sector_etfs"].get(s, ""), "mom6m": sec_mom.get(s)} for s in sec_syms],
             key=lambda x: (x["mom6m"] is not None, x["mom6m"] or -999), reverse=True,
         )[:top_sectors]
 
-        # ★ 종목 유니버스 = 플레이북 stock_gics(전략상 유리 업종)로 제한 → 모멘텀 순.
-        #   (섹터 ETF 표시와 분리: 성장은 시클리컬 4섹터만 — 회복 섹터인 IT/반도체 누수 방지)
-        ranked = sorted(stock_etfs, key=lambda s: (sec_mom.get(s) is not None, sec_mom.get(s) or -999), reverse=True)
+        # ★ 종목 유니버스 = 섹터 패널과 동일한 favored 섹터 중 양(+)모멘텀.
+        #   "화면에 뜨는 뜨거운 섹터에서 종목을 뽑는다" → 패널·종목 정합(성장이면 테크 XLK 포함).
+        #   과거엔 stock_gics로 시클리컬 4섹터만 썼으나, 패널(테크 1위)과 모순돼 통일함.
+        ranked = [s["symbol"] for s in sectors]
         strong = [s for s in ranked if (sec_mom.get(s) or -999) > 0]
         chosen_etfs = strong or ranked[:4]
         favored_gics = [etf_to_gics[s] for s in chosen_etfs if s in etf_to_gics]
@@ -260,7 +260,10 @@ def recommend(top_sectors: int = 8, top_stocks: int = 15,
                 })
 
         rows.sort(key=lambda x: x["final"], reverse=True)
-        stocks = _diversify(rows, top_stocks)
+        # 평균 이하(음수 스코어) tail 제거 — '추천'은 양(+)만. 단 최소 개수는 보장(빈 목록 방지).
+        positive = [r for r in rows if r["final"] > 0]
+        pool = positive if len(positive) >= _MIN_STOCKS else rows
+        stocks = _diversify(pool, top_stocks)
 
     result = {
         "as_of": reg["as_of"], "regime": regime, "regime_kr": reg["regime_kr"],
