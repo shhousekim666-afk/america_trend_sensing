@@ -212,6 +212,72 @@ def _heatmap(timeline, provisional=None):
     return f"<div class='tbl-wrap'><table class='heat'>{head}{body}</table></div>"
 
 
+def _portfolio(uni, regime, sectors, stocks_detail, sat_frac=0.25):
+    """코어-새틀라이트 통합 바스켓(표시용). 백테스트가 읽는 regime_index_basket(코어)은
+    안 건드리고, 주식의 sat_frac 만큼을 미국 광의(QQQ/SPY)에서 떼어 상위 favored 섹터로 틸트.
+    각 새틀라이트 섹터엔 그 섹터의 추천 종목을 매핑(단일종목 구현법). 반환: HTML."""
+    basket = uni.get("regime_index_basket", {}).get(regime, {})
+    if not basket:
+        return "<p class='cap'>바스켓 데이터 없음</p>"
+    safe_set = set(uni.get("safe_assets", []))
+    idx_name = uni.get("index_etfs", {})
+    etf_to_gkr = {etf: GICS_KR.get(g, g) for g, etf in uni.get("gics_to_etf", {}).items()}
+    equity = {s: w for s, w in basket.items() if s not in safe_set}
+    safe = {s: w for s, w in basket.items() if s in safe_set}
+    equity_total = sum(equity.values())
+    US_BROAD = ("QQQ", "SPY")  # 새틀라이트 재원 = 미국 광의 대형
+    broad_avail = sum(equity.get(s, 0) for s in US_BROAD)
+    sat_total = min(round(equity_total * sat_frac), broad_avail)
+    fav = [s for s in sectors if (s.get("mom") or -999) > 0][:3]
+
+    core_eq = dict(equity)
+    sat_rows = []
+    if fav and sat_total > 0 and broad_avail > 0:
+        for s in US_BROAD:  # 코어의 미국 광의에서 비례 차감
+            if s in core_eq:
+                core_eq[s] = round(core_eq[s] - sat_total * equity[s] / broad_avail, 1)
+        mom_sum = sum(x["mom"] for x in fav) or 1
+        for s in fav:
+            w = round(sat_total * s["mom"] / mom_sum, 1)
+            gkr = etf_to_gkr.get(s["symbol"], "")
+            picks = [d["symbol"] for d in stocks_detail if d["gics_kr"] == gkr][:3]
+            sat_rows.append((s["symbol"], s["name"], w, picks))
+
+    def _row(sym, name, wt, extra=""):
+        asset_kr = idx_name.get(sym, "") or name
+        return (f"<tr><td class='sym'>{sym}</td>"
+                f"<td>{asset_kr}{extra}</td>"
+                f"<td class='wt'>{wt:g}%</td></tr>")
+
+    html = ["<table class='pf'>"]
+    html.append("<tr><th colspan='3' class='grp core'>코어 · 검증된 광의 베타 (백테스트 대상)</th></tr>")
+    for sym, wt in sorted(core_eq.items(), key=lambda x: -x[1]):
+        if wt >= 0.5:
+            html.append(_row(sym, idx_name.get(sym, ""), wt))
+    if sat_rows:
+        html.append("<tr><th colspan='3' class='grp sat'>새틀라이트 · 국면 섹터 틸트 (미검증, 알파 시도)</th></tr>")
+        for sym, name, wt, picks in sat_rows:
+            if picks:  # 섹터 비중을 개별 종목으로 분할 — ETF 일괄 또는 종목 개별
+                html.append(f"<tr><td class='sym'>{sym}</td>"
+                            f"<td>{name} <span class='sub'>· {sym} 일괄 또는 개별종목 ↓</span></td>"
+                            f"<td class='wt'>{wt:g}%</td></tr>")
+                n = len(picks)
+                for i, pk in enumerate(picks):
+                    # 등분할, 마지막 종목이 반올림 잔차 흡수 → 합이 섹터 비중과 일치
+                    sw = round(wt - round(wt / n, 1) * (n - 1), 1) if i == n - 1 else round(wt / n, 1)
+                    html.append(f"<tr><td class='sym stk'>{pk}</td>"
+                                f"<td class='sub'>↳ {name} 개별종목</td>"
+                                f"<td class='wt stk'>{sw:g}%</td></tr>")
+            else:
+                html.append(_row(sym, name, wt, " <span class='sub'>(추천 개별종목 없음 → ETF로)</span>"))
+    if safe:
+        html.append("<tr><th colspan='3' class='grp safe'>안전자산</th></tr>")
+        for sym, wt in sorted(safe.items(), key=lambda x: -x[1]):
+            html.append(_row(sym, idx_name.get(sym, ""), wt))
+    html.append("</table>")
+    return "".join(html)
+
+
 AXIS_NOTE = {
     "leading": "주가·심리·금리차처럼 경기보다 먼저 움직임. 가장 먼저 꺾인다.",
     "coincident": "산업생산·소비처럼 경기와 함께 움직임. 실물 현황.",
@@ -685,6 +751,11 @@ table{{width:100%;border-collapse:collapse;font-size:13px}} th,td{{padding:6px 8
 .sym{{font-weight:700;color:#93c5fd}}
 .sub{{color:#6b7280;font-size:12px}} .mtr{{color:#22c55e;font-size:12px;white-space:nowrap}} .dsc{{color:#9ca3af;font-size:12px;line-height:1.5}}
 .rsi{{display:inline-block;min-width:30px;text-align:center;font-size:12px;font-weight:700;border-radius:6px;padding:2px 6px}}
+.pf{{width:100%;border-collapse:collapse}} .pf td{{padding:5px 8px;font-size:13px;border-bottom:1px solid #161c28}}
+.pf td.wt{{text-align:right;font-weight:700;color:#e5e7eb;white-space:nowrap}}
+.pf th.grp{{text-align:left;font-size:11px;font-weight:700;padding:8px 8px 3px;letter-spacing:.3px}}
+.pf th.grp.core{{color:#93c5fd}} .pf th.grp.sat{{color:#fbbf24}} .pf th.grp.safe{{color:#9ca3af}}
+.pf td.stk{{padding-left:22px;color:#9ca3af;font-size:12px}} .pf td.wt.stk{{color:#9ca3af;font-weight:600}}
 table.heat{{font-size:11px;text-align:center}} table.heat td,table.heat th{{border:1px solid #0b0f17;text-align:center;padding:3px 4px;color:#fff}}
 table.heat td.yr{{background:#111827;font-weight:700}}
 .lg{{margin-right:14px;font-size:12px}} .lg i{{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:4px;vertical-align:-1px}}
@@ -781,8 +852,8 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <p class="cap">국면 → 유리 섹터 → 모멘텀 랭킹. 음수(빨강)는 이론상 유리 섹터라도 현재 약세임을 뜻함.</p>
 <div class="grid">
   <div class="card"><h4>자산배분 바스켓 <span style="color:#22c55e">· 총 주식비중 {equity_pct}%</span></h4>
-    <p class="cap" style="margin:2px 0 8px">국면별 주식/지역/안전자산 목표비중. 이 시스템의 핵심 = '얼마나 위험을 질까'(주식비중).</p>
-    <table>{rec_rows('index')}</table></div>
+    <p class="cap" style="margin:2px 0 8px"><b>코어-새틀라이트 통합</b>: <span style="color:#93c5fd">코어</span>=백테스트된 광의 베타(SPY 초과의 근거), <span style="color:#fbbf24">새틀라이트</span>=주식의 일부를 상위 favored 섹터로 틸트(→ 그 섹터 추천종목으로 구현). 새틀라이트는 알파 시도로 <b>미검증</b>.</p>
+    {_portfolio(uni, reg.get('regime',''), sectors, stocks_detail)}</div>
   <div class="card"><h4>섹터 ETF (6M 모멘텀순)</h4>{sector_bars}</div>
 </div>
 <div class="card" style="margin-top:16px">
