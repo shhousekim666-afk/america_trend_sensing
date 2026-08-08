@@ -212,75 +212,103 @@ def _heatmap(timeline, provisional=None):
     return f"<div class='tbl-wrap'><table class='heat'>{head}{body}</table></div>"
 
 
-def _portfolio(uni, regime, sectors, stocks_detail, sat_frac=0.25, sat_top=8, nostock_max=2):
+_TECH_GKR = {"정보기술"}                 # 테크 섹터(오프셋 대상)
+_FINTECH = {"XYZ", "PYPL", "SQ"}         # 금융 라벨이나 실질 테크(실효 노출에 합산)
+_TECH_W = {"QQQ": 0.50, "SPY": 0.30, "IWM": 0.10, "EEM": 0.22, "EFA": 0.09}  # 각 ETF 근사 테크 비중
+
+
+def _portfolio(uni, regime, sectors, stocks_detail,
+               sat_frac=0.25, sat_top=6, sat_sector_cap=2, nostock_max=2):
     """코어-새틀라이트 통합 바스켓(표시용). 백테스트가 읽는 regime_index_basket(코어)은
-    안 건드리고, 주식의 sat_frac 만큼을 미국 광의(QQQ/SPY)에서 떼어 새틀라이트로.
-    섹터 슬리브마다 3가지 경우로 자동 판정:
-      ① 주식만  — 비과열 종목 2개+ (이미 분산됨)
-      ② 주식+ETF — 단일 종목 또는 전부 과열 (단일·과열 리스크를 ETF로 완충)
-      ③ ETF만   — favored 섹터인데 적합 종목 없음
-    비중 단위: 팩터 상위 종목 1개=1유닛, 무종목 favored 섹터 1개=1유닛."""
+    안 건드림. 주식의 sat_frac 만큼을 미국 광의에서 떼어 새틀라이트로 — 단,
+    **테크 새틀라이트는 QQQ에서 우선 차출**(오프셋)해 은폐된 테크 이중계상 방지.
+    섹터 슬리브 3가지 판정: ①주식만(비과열 2개+) ②주식+ETF(단일/전부과열 완충) ③ETF만.
+    **극단 과열(RSI>75 또는 6M>100%)은 제외**, 섹터당 최대 sat_sector_cap·총 sat_top개."""
     basket = uni.get("regime_index_basket", {}).get(regime, {})
     if not basket:
         return "<p class='cap'>바스켓 데이터 없음</p>"
     safe_set = set(uni.get("safe_assets", []))
     idx_name = uni.get("index_etfs", {})
     gkr_to_etf = {GICS_KR.get(g, g): etf for g, etf in uni.get("gics_to_etf", {}).items()}
+    etf_to_gkr = {etf: GICS_KR.get(g, g) for g, etf in uni.get("gics_to_etf", {}).items()}
     equity = {s: w for s, w in basket.items() if s not in safe_set}
     safe = {s: w for s, w in basket.items() if s in safe_set}
     equity_total = sum(equity.values())
-    US_BROAD = ("QQQ", "SPY")
-    broad_avail = sum(equity.get(s, 0) for s in US_BROAD)
+    broad_avail = equity.get("QQQ", 0) + equity.get("SPY", 0)
     sat_total = min(round(equity_total * sat_frac), broad_avail)
 
+    def _mom6(st):
+        m = re.search(r"6M\s([\-\d.]+)%", st.get("metric", ""))
+        return float(m.group(1)) if m else None
+
+    def _extreme(st):  # 극단 과열 = 추격 매수 위험 → 새틀라이트 제외(분석표엔 그대로 표시)
+        r, m6 = st.get("rsi"), _mom6(st)
+        return (r is not None and r > 75) or (m6 is not None and m6 > 100)
+
     core_eq = dict(equity)
-    # 섹터별 팩터 상위 종목 그룹(등장 순 = 팩터 랭킹 순)
-    top = stocks_detail[:sat_top]
-    by_sec, order = {}, []
-    for st in top:
+    # 팩터 상위 종목 → 극단과열 제외 + 섹터당 cap + 총 sat_top개
+    by_sec, order, picked = {}, [], 0
+    for st in stocks_detail:
+        if picked >= sat_top:
+            break
+        if _extreme(st):
+            continue
         gk = st["gics_kr"]
+        if len(by_sec.get(gk, [])) >= sat_sector_cap:
+            continue
         if gk not in by_sec:
             by_sec[gk] = []; order.append(gk)
-        by_sec[gk].append(st)
-    # 무종목 favored 섹터(예: 에너지 — 뜨겁지만 좋은 종목 없음) → ETF만(③). 상위 nostock_max개.
+        by_sec[gk].append(st); picked += 1
     stock_gkr = set(by_sec)
-    etf_to_gkr = {etf: GICS_KR.get(g, g) for g, etf in uni.get("gics_to_etf", {}).items()}
     fav_nostock = [s for s in sectors if (s.get("mom") or -999) > 0
                    and etf_to_gkr.get(s["symbol"], "") not in stock_gkr][:nostock_max]
 
-    units = len(top) + len(fav_nostock)
-    sleeves = []  # (etf, 섹터한글, case, [(sym, w, is_etf)], gw)
+    units = picked + len(fav_nostock)
+    sleeves = []  # (etf, 섹터한글, case, [(sym, w, is_etf)], gw, is_tech)
     if units > 0 and sat_total > 0 and broad_avail > 0:
-        for s in US_BROAD:
-            if s in core_eq:
-                core_eq[s] = round(core_eq[s] - sat_total * equity[s] / broad_avail, 1)
         uw = sat_total / units
-        for gk in order:  # 종목 있는 섹터
+        for gk in order:
             sts = by_sec[gk]
             etf = gkr_to_etf.get(gk, "")
             gw = round(len(sts) * uw, 1)
             n = len(sts)
             hot = ["과열" in st["metric"] for st in sts]
             if n == 1:
-                case, etf_share = 2, (0.5 if hot[0] else 0.4)   # 단일종목 리스크 → ETF 완충
+                case, etf_share = 2, (0.5 if hot[0] else 0.4)
             elif all(hot):
-                case, etf_share = 2, 0.4                          # 전부 과열 → ETF 완충
+                case, etf_share = 2, 0.4
             else:
-                case, etf_share = 1, 0.0                          # 분산됨 → 주식만
+                case, etf_share = 1, 0.0
             etf_w = round(gw * etf_share, 1)
             stk_pool = round(gw - etf_w, 1)
-            rows = []
-            base = round(stk_pool / n, 1)
+            rows, base = [], round(stk_pool / n, 1)
             for i, st in enumerate(sts):
                 w = round(stk_pool - base * (n - 1), 1) if i == n - 1 else base
                 rows.append((st["symbol"], w, False))
             if etf_w > 0 and etf:
                 rows.append((etf, etf_w, True))
-            sleeves.append((etf, gk, case, rows, gw))
-        for s in fav_nostock:  # 종목 없는 favored 섹터 → ETF만(③)
+            sleeves.append((etf, gk, case, rows, gw, gk in _TECH_GKR))
+        for s in fav_nostock:
             etf = s["symbol"]; gk = etf_to_gkr.get(etf, s.get("name", etf))
-            gw = round(uw, 1)
-            sleeves.append((etf, gk, 3, [(etf, gw, True)], gw))
+            sleeves.append((etf, gk, 3, [(etf, round(uw, 1), True)], round(uw, 1), gk in _TECH_GKR))
+
+        # 오프셋: 새틀라이트 전액을 QQQ(테크 최다 보유)에서 우선 차출 → 은폐 테크집중 완화.
+        # (테크 새틀라이트는 QQQ와 스왑=중립, 비테크 새틀라이트는 QQQ를 팔아 테크 순감소)
+        amount = round(sat_total, 1)
+        for sym in ("QQQ", "SPY", "IWM"):
+            if amount <= 0:
+                break
+            take = min(core_eq.get(sym, 0), amount)
+            core_eq[sym] = round(core_eq.get(sym, 0) - take, 1)
+            amount = round(amount - take, 1)
+
+    # 실효 테크 노출(은폐 방지): 코어 근사 + 새틀라이트 테크/핀테크 종목
+    eff_tech = sum(w * _TECH_W.get(s, 0) for s, w in core_eq.items())
+    for etf, gk, case, rows, gw, is_t in sleeves:
+        for sym, w, is_etf in rows:
+            if is_t or sym in _FINTECH or (is_etf and etf_to_gkr.get(sym) in _TECH_GKR):
+                eff_tech += w
+    eff_tech = round(eff_tech, 1)
 
     def _row(sym, name, wt, extra=""):
         return (f"<tr><td class='sym'>{sym}</td><td>{idx_name.get(sym,'') or name}{extra}</td>"
@@ -295,7 +323,7 @@ def _portfolio(uni, regime, sectors, stocks_detail, sat_frac=0.25, sat_top=8, no
             html.append(_row(sym, idx_name.get(sym, ""), wt))
     if sleeves:
         html.append("<tr><th colspan='3' class='grp sat'>새틀라이트 · 국면 주도 섹터 (미검증, 알파 시도)</th></tr>")
-        for etf, gk, case, rows, gw in sleeves:
+        for etf, gk, case, rows, gw, is_t in sleeves:
             tag = (f" <span class='ctag' style='color:{CASE_COL[case]};border-color:{CASE_COL[case]}55'>"
                    f"{CASE_LBL[case]}</span>")
             html.append(f"<tr><td class='sym'>{gk}</td><td>주도 섹터{tag}</td>"
@@ -309,6 +337,11 @@ def _portfolio(uni, regime, sectors, stocks_detail, sat_frac=0.25, sat_top=8, no
         for sym, wt in sorted(safe.items(), key=lambda x: -x[1]):
             html.append(_row(sym, idx_name.get(sym, ""), wt))
     html.append("</table>")
+    tc = "#ef4444" if eff_tech >= 38 else ("#fbbf24" if eff_tech >= 33 else "#9ca3af")
+    html.append(f"<p class='cap' style='margin-top:6px'>실효 테크/성장복합 노출(추정) "
+                f"<b style='color:{tc}'>≈{eff_tech:g}%</b> <span class='sub'>(시장 SPY ~30% 대비 · "
+                f"QQQ+새틀라이트 테크+핀테크 합산, 오프셋 반영). 극단 과열(RSI&gt;75·6M&gt;100%) 종목은 "
+                f"새틀라이트에서 제외됨.</span></p>")
     return "".join(html)
 
 
