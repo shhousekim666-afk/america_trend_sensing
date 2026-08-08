@@ -327,7 +327,7 @@ def _portfolio(uni, regime, sectors, stocks_detail,
         if wt >= 0.5:
             html.append(_row(sym, idx_name.get(sym, ""), wt))
     if sleeves:
-        html.append("<tr><th colspan='3' class='grp sat'>새틀라이트 · 국면 주도 섹터 (미검증, 알파 시도)</th></tr>")
+        html.append("<tr><th colspan='3' class='grp sat'>⚠ 새틀라이트 · 미검증 · 참고용 (실행 신호 아님)</th></tr>")
         for etf, gk, case, rows, gw, is_t in sleeves:
             tag = (f" <span class='ctag' style='color:{CASE_COL[case]};border-color:{CASE_COL[case]}55'>"
                    f"{CASE_LBL[case]}</span>")
@@ -928,7 +928,8 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <p class="cap">국면 → 유리 섹터 → 모멘텀 랭킹. 음수(빨강)는 이론상 유리 섹터라도 현재 약세임을 뜻함.</p>
 <div class="grid">
   <div class="card"><h4>자산배분 바스켓 <span style="color:#22c55e">· 총 주식비중 {equity_pct}%</span></h4>
-    <p class="cap" style="margin:2px 0 8px"><b>코어-새틀라이트 통합</b>: <span style="color:#93c5fd">코어</span>=백테스트된 광의 베타(SPY 초과의 근거), <span style="color:#fbbf24">새틀라이트</span>=국면 주도 섹터를 <b>팩터 상위 종목</b>으로 채우되 섹터별로 3가지 판정(<span style="color:#22c55e">주식만</span>/<span style="color:#fbbf24">주식+ETF</span>/<span style="color:#9ca3af">ETF만</span>). 새틀라이트는 알파 시도로 <b>미검증</b>.</p>
+    <p class="cap" style="margin:2px 0 8px"><b>코어-새틀라이트 통합</b>: <span style="color:#93c5fd">코어</span>=백테스트된 광의 베타(SPY 초과의 근거), <span style="color:#fbbf24">새틀라이트</span>=국면 주도 섹터를 <b>팩터 상위 종목</b>으로 채우되 섹터별로 3가지 판정(<span style="color:#22c55e">주식만</span>/<span style="color:#fbbf24">주식+ETF</span>/<span style="color:#9ca3af">ETF만</span>).</p>
+    <p class="cap" style="margin:2px 0 8px;border-left:3px solid #f59e0b;padding-left:8px;background:#f59e0b12"><b style="color:#f59e0b">⚠ 검증된 부분은 코어뿐입니다.</b> 새틀라이트(약 25%)는 <b>백테스트로 검증되지 않았고, 이 도구 자신의 검증 결과(“섹터·종목 선택은 초과수익 없음”)와도 상충</b>합니다. 개별종목은 생존편향·발표시점 편향도 있습니다. <b>실행 신호가 아니라 “어느 산업이 주도하나”를 보는 아이디어 참고용</b>으로만 쓰세요.</p>
     {_portfolio(uni, reg.get('regime',''), sectors, stocks_detail)}</div>
   <div class="card"><h4>섹터 ETF (6M 모멘텀순)</h4>{sector_bars}</div>
 </div>
