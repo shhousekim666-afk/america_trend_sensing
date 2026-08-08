@@ -310,8 +310,13 @@ def _portfolio(uni, regime, sectors, stocks_detail,
                 eff_tech += w
     eff_tech = round(eff_tech, 1)
 
-    def _row(sym, name, wt, extra=""):
-        return (f"<tr><td class='sym'>{sym}</td><td>{idx_name.get(sym,'') or name}{extra}</td>"
+    def _kind(is_stock):  # 주식/ETF 종류 배지
+        return ('<span class="kind stk">주식</span>' if is_stock
+                else '<span class="kind etf">ETF</span>')
+
+    def _row(sym, name, wt, extra=""):  # 코어·안전자산 = 전부 ETF
+        return (f"<tr><td class='sym'>{sym} {_kind(False)}</td>"
+                f"<td>{idx_name.get(sym,'') or name}{extra}</td>"
                 f"<td class='wt'>{wt:g}%</td></tr>")
 
     CASE_LBL = {1: "주식만 · 분산됨", 2: "주식+ETF · 단일/과열 완충", 3: "ETF만 · 적합 종목 없음"}
@@ -330,7 +335,7 @@ def _portfolio(uni, regime, sectors, stocks_detail,
                         f"<td class='wt'>{gw:g}%</td></tr>")
             for sym, w, is_etf in rows:
                 lab = f"↳ {gk} ETF(분산)" if is_etf else f"↳ {gk} 팩터 상위"
-                html.append(f"<tr><td class='sym stk'>{sym}</td>"
+                html.append(f"<tr><td class='sym stk'>{sym} {_kind(not is_etf)}</td>"
                             f"<td class='sub'>{lab}</td><td class='wt stk'>{w:g}%</td></tr>")
     if safe:
         html.append("<tr><th colspan='3' class='grp safe'>안전자산</th></tr>")
@@ -824,6 +829,9 @@ table{{width:100%;border-collapse:collapse;font-size:13px}} th,td{{padding:6px 8
 .pf th.grp.core{{color:#93c5fd}} .pf th.grp.sat{{color:#fbbf24}} .pf th.grp.safe{{color:#9ca3af}}
 .pf td.stk{{padding-left:22px;color:#9ca3af;font-size:12px}} .pf td.wt.stk{{color:#9ca3af;font-weight:600}}
 .ctag{{display:inline-block;font-size:10.5px;font-weight:700;border:1px solid;border-radius:5px;padding:0 5px;margin-left:4px}}
+.kind{{display:inline-block;font-size:9.5px;font-weight:700;border-radius:4px;padding:0 4px;margin-left:3px;vertical-align:middle}}
+.kind.stk{{color:#60a5fa;background:#60a5fa1e;border:1px solid #60a5fa55}}
+.kind.etf{{color:#9ca3af;background:#9ca3af1e;border:1px solid #9ca3af55}}
 table.heat{{font-size:11px;text-align:center}} table.heat td,table.heat th{{border:1px solid #0b0f17;text-align:center;padding:3px 4px;color:#fff}}
 table.heat td.yr{{background:#111827;font-weight:700}}
 .lg{{margin-right:14px;font-size:12px}} .lg i{{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:4px;vertical-align:-1px}}
