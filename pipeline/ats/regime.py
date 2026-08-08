@@ -96,12 +96,13 @@ def _direction(s: pd.Series, transform: str) -> pd.Series:
     return np.sign(d)
 
 
-def classify_history() -> pd.DataFrame:
+def classify_history(monthly: dict | None = None) -> pd.DataFrame:
     """월별 국면 타임라인. index=월말, cols=[L,C,Lag,regime,confidence,provisional]."""
     cfg = load_indicators()
     inds = cfg["indicators"]
-    with SessionLocal() as session:
-        monthly = _load_monthly(session)
+    if monthly is None:  # 기본: DB 최신(개정) 데이터. PIT는 발표시점 monthly 를 주입.
+        with SessionLocal() as session:
+            monthly = _load_monthly(session)
 
     # 지표별 경기 기여(invert + 레벨 게이트 적용)
     dir_signed: dict[str, tuple[pd.Series, str, float]] = {}
@@ -327,10 +328,14 @@ def explain_current() -> dict:
 AXIS_KR = {"leading": "선행", "coincident": "동행", "lagging": "후행"}
 
 
-def evaluate() -> dict:
-    """NBER 침체(FRED USREC) 정답 대비 정량 검증: precision/recall/F1·시차·휘프소율."""
+def evaluate(hist: pd.DataFrame | None = None) -> dict:
+    """NBER 침체(FRED USREC) 정답 대비 정량 검증: precision/recall/F1·시차·휘프소율.
+
+    hist 를 주입하면 그 타임라인으로 평가(PIT 발표시점 국면 검증에 사용)."""
     from .sources import fred
-    hist = classify_history().dropna(subset=["regime"]).copy()
+    if hist is None:
+        hist = classify_history()
+    hist = hist.dropna(subset=["regime"]).copy()
     if hist.empty:
         return {"error": "데이터 없음"}
     usrec = {(d.year, d.month): int(v) for d, v in fred.fetch("USREC", "2000-01-01")}

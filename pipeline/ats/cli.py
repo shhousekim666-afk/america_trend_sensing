@@ -175,9 +175,38 @@ def cmd_update():
     print("[update] 전체 정상 ✓")
 
 
+def cmd_pit():
+    from .pit import run_pit
+    r = run_pit()
+    if "error" in r:
+        print(r["error"]); return
+    print(f"\n[PIT(발표시점) 백테스트]  발표 당시 vintage 로 재구성 ({r['pit_months']}개 결정월)")
+
+    def _ev(tag, e):
+        if "error" in e:
+            print(f"  {tag}: {e['error']}"); return
+        print(f"  {tag:8} Precision {e['precision']}  Recall {e['recall']}  F1 {e['f1']}"
+              f"  (휘프소 {e['whipsaw_smoothed']})")
+    print("\n▶ NBER 침체 검증 — 발표시점(PIT) vs 개정(현재)")
+    _ev("PIT", r["pit_eval"]); _ev("개정", r["rev_eval"])
+
+    print("\n▶ 전략 백테스트 — 발표시점(PIT) vs 개정(현재)")
+    print(f"  {'전략':22}{'PIT CAGR/MDD/Sharpe':>26}   {'개정 CAGR/MDD/Sharpe':>26}")
+    pit_s, rev_s = r["pit_strategy"], r["rev_strategy"]
+    for k in rev_s:
+        p, v = pit_s.get(k, {}), rev_s.get(k, {})
+        def fmt(d):
+            if not d or d.get("cagr") is None:
+                return f"{'—':>26}"
+            return f"{d['cagr']*100:>6.1f}% {d['mdd']*100:>5.0f}% {d['sharpe']:>6.2f}     "
+        print(f"  {k:22}{fmt(p)}   {fmt(v)}")
+    print("\n  * PIT 가 개정 대비 낮으면 = 실시간엔 더 어렵다는 뜻(look-ahead 편향 규모).")
+
+
 _CMDS = {"collect": cmd_collect, "regime": cmd_regime, "backtest": cmd_backtest,
          "verify": cmd_verify, "recommend": cmd_recommend, "report": cmd_report,
-         "evaluate": cmd_evaluate, "strategy": cmd_strategy, "update": cmd_update}
+         "evaluate": cmd_evaluate, "strategy": cmd_strategy, "pit": cmd_pit,
+         "update": cmd_update}
 
 
 def main():

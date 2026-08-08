@@ -181,7 +181,7 @@ def _stats(curve, label, key, rf_m=None):
     }
 
 
-def backtest_strategy(start="2006-01-01") -> dict:
+def backtest_strategy(start="2006-01-01", hist=None) -> dict:
     uni = load_universe()
     pb = uni["regime_playbook"]
     _BASKET.clear()
@@ -190,7 +190,8 @@ def backtest_strategy(start="2006-01-01") -> dict:
     _BASKET_BAL.update(uni.get("regime_index_basket_balanced", {}))  # 균형형(참고)
     sector_syms = list(uni["sector_etfs"])
     asset_syms = list(uni.get("index_etfs", {}))  # SPY/QQQ/IWM/DIA/TLT/GLD/SHY 등 — 국면틸트용
-    hist = classify_history()
+    if hist is None:  # 기본: 개정 데이터 국면. PIT는 발표시점 국면 타임라인 주입.
+        hist = classify_history()
     if hist.empty:
         return {"error": "데이터 없음"}
     with SessionLocal() as session:
