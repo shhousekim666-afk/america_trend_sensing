@@ -18,7 +18,7 @@ from .config import ROOT_DIR, load_indicators, load_universe
 from .db import SessionLocal
 from .models import (IndicatorMeta, MacroSeries, MarketPrice, Recommendation,
                      RegimeSnapshot, SP500Constituent, TEHeadline)
-from .regime import KOR, current_regime, evaluate, explain_current
+from .regime import KOR, current_regime, evaluate, explain_current, provisional_tail
 from .strategy import backtest_strategy
 
 GICS_KR = {"Information Technology": "정보기술", "Communication Services": "커뮤니케이션",
@@ -188,16 +188,26 @@ def _gather():
     return reg, timeline, rec_by, te_list, sectors, indicators, uni, stocks_detail, explain, valid
 
 
-def _heatmap(timeline):
+def _heatmap(timeline, provisional=None):
     by_year = defaultdict(lambda: ["" for _ in range(12)])
+    prov = defaultdict(lambda: [False] * 12)
     for row in timeline:
         by_year[int(row["d"][:4])][int(row["d"][5:7]) - 1] = row["r"]
+    for row in (provisional or []):
+        y, m = int(row["d"][:4]), int(row["d"][5:7]) - 1
+        by_year[y][m] = row["regime"]
+        prov[y][m] = True
     head = "<tr><th>연도</th>" + "".join(f"<th>{m}</th>" for m in range(1, 13)) + "</tr>"
     body = ""
     for y in sorted(by_year):
-        tds = "".join(
-            f'<td style="background:{REGIME_COLOR.get(r,"#1f2937")}" title="{KOR.get(r,"")}">{SYM.get(r,"")}</td>'
-            for r in by_year[y])
+        tds = ""
+        for m, r in enumerate(by_year[y]):
+            base = REGIME_COLOR.get(r, "#1f2937")
+            if prov[y][m]:  # 잠정: 흐리게 + 점선 테두리 + '?' — 확정과 시각 구분
+                tds += (f'<td class="prov" style="background:{base}44;border:1px dashed {base}" '
+                        f'title="{KOR.get(r,"")} · 잠정(선행 나우캐스트, 동행·후행 미발표)">{SYM.get(r,"")}?</td>')
+            else:
+                tds += (f'<td style="background:{base}" title="{KOR.get(r,"")}">{SYM.get(r,"")}</td>')
         body += f"<tr><td class='yr'>{y}</td>{tds}</tr>"
     return f"<div class='tbl-wrap'><table class='heat'>{head}{body}</table></div>"
 
@@ -574,6 +584,17 @@ def build(out_path=None):
                   'border-radius:20px;padding:1px 9px;font-weight:700;font-size:12px">⚠ 잠정 (3개월 확정 전)</span>'
                   if reg.get("provisional") else '<span style="color:#22c55e;font-weight:700">✓ 확정</span>')
 
+    # 진행 중 월의 잠정 국면(선행 나우캐스트) — 히트맵에 '잠정'으로 표기
+    prov_tail = provisional_tail()
+    if prov_tail:
+        _pv = " · ".join(
+            f"{int(p['d'][5:7])}월 {KOR.get(p['regime'],'')}?(선행 {p['L']:+.2f})" for p in prov_tail)
+        prov_note = (f'<p class="cap" style="margin-top:6px">🔶 <b>잠정 셀</b>(점선·흐림): '
+                     f'{_pv}. 선행축(주가·금리·심리)은 이미 값이 있으나 <b>동행·후행 월간(고용·생산·물가)이 '
+                     f'미발표</b>라, 동행·후행을 마지막 확정월 값으로 유지한 <b>선행 나우캐스트</b>입니다 — 확정 아님.</p>')
+    else:
+        prov_note = ""
+
     # 데이터 최신성(오해 방지): 국면은 월간 매크로 발표 주기에 묶임 / 시장가는 매주 갱신
     _mac_kr, _prc_kr = _data_freshness()
     freshness = (
@@ -753,7 +774,8 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 
 <h2>연도별 경기 국면 히트맵 (2000~)</h2>
 <p class="cap">한 칸 = 한 달의 확정 국면. 회복→성장→둔화→침체 순환을 한눈에.</p>
-<div>{legend}</div>{_heatmap(timeline)}
+<div>{legend}</div>{_heatmap(timeline, prov_tail)}
+{prov_note}
 
 <h2>투자 추천 — {reg.get('regime_kr')} 국면</h2>
 <p class="cap">국면 → 유리 섹터 → 모멘텀 랭킹. 음수(빨강)는 이론상 유리 섹터라도 현재 약세임을 뜻함.</p>

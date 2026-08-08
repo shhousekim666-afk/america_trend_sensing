@@ -149,6 +149,37 @@ def classify_history() -> pd.DataFrame:
     return df.round(2)
 
 
+def provisional_tail() -> list[dict]:
+    """확정 월 이후 '진행 중' 월의 잠정 국면(선행 나우캐스트).
+
+    동행·후행 월간(고용·생산·물가)이 아직 미발표라 확정 불가한 최신 월들에 대해,
+    선행축(주가·금리·심리)은 이미 값이 있으므로 → 동행·후행을 마지막 확정월 값으로
+    carry-forward 후 4국면 매칭. 히트맵에 '잠정'으로만 표기(확정과 구분).
+    """
+    df = classify_history()
+    if df.empty:
+        return []
+    conf = df.dropna(subset=["regime"])
+    if conf.empty:
+        return []
+    last_idx = conf.index[-1]
+    last = conf.iloc[-1]
+    tail = df[df.index > last_idx]
+    out = []
+    for idx, row in tail.iterrows():
+        L = row["L"]
+        if pd.isna(L):  # 선행조차 없으면 나우캐스트 불가
+            continue
+        C = row["C"] if not pd.isna(row["C"]) else last["C"]
+        Lag = row["Lag"] if not pd.isna(row["Lag"]) else last["Lag"]
+        r, c, _, _ = _match(float(L), float(C), float(Lag))
+        out.append({"d": idx.date().isoformat(), "regime": r,
+                    "confidence": round(float(c), 2),
+                    "L": round(float(L), 2),
+                    "C_carry": bool(pd.isna(row["C"])), "Lag_carry": bool(pd.isna(row["Lag"]))})
+    return out
+
+
 def _smooth(regimes: list, n: int = 3, n_fast: int = 2, fast=("recession",)) -> list:
     """비대칭 지속성 평활(§2.4): 침체(방어)는 n_fast 개월에 빠르게 확정, 나머지는 n 개월.
 
