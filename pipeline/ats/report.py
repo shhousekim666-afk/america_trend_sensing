@@ -632,6 +632,22 @@ def _validation_tab(valid):
         '즉 엣지의 약 절반은 트렌드팔로잉 성격이며 순수 매크로 알파는 제한적이다. '
         '주가는 정당한 선행지표지만(모든 인베스트먼트 클락이 시장신호 사용), 이 도구의 우위를 "매크로 예측력"으로 과신하면 안 된다.</p></div>')
 
+    pit_card = (
+        '<div class="card" style="border-color:#22c55e55"><h4>✅ PIT(발표시점) 무편향 검증 — look-ahead 편향 규모</h4>'
+        '<p class="cap" style="margin:0 0 8px">가장 큰 방법론적 숙제였던 <b>발표시점(point-in-time) 백테스트</b>를 구현·수행. '
+        'ALFRED 아카이브로 <b>각 시점에 실제로 알려져 있던 vintage 값</b>만 써서 국면을 재구성(248개월, 개정·미래정보 제거). '
+        '개정 데이터로 만든 현재 수치와 비교:</p>'
+        '<div class="tbl-wrap"><table>'
+        '<tr><th>기준</th><th>Precision</th><th>Recall</th><th>F1</th><th>공격형 CAGR/MDD/Sharpe</th><th>휘프소</th></tr>'
+        '<tr style="color:#22c55e;font-weight:700"><td>발표시점(PIT)</td><td>0.54</td><td>0.70</td><td>0.61</td><td>12.0% / −28% / 0.74</td><td>0.093</td></tr>'
+        '<tr><td>개정(현재)</td><td>0.42</td><td>0.71</td><td>0.53</td><td>11.4% / −28% / 0.72</td><td>0.054</td></tr>'
+        '</table></div>'
+        '<p class="cap" style="margin-top:8px"><b>결론: look-ahead 편향은 미미하며 엣지는 데이터 개정의 산물이 아니다.</b> '
+        '지표가 방향성(기울기·YoY) 기반이라 레벨 개정에 강하고, 타이밍 엣지의 핵심인 시장·선행축은 애초에 개정이 없다. '
+        'PIT가 오히려 소폭 나은 건 실시간 신호가 때때로 더 이르기 때문(+소표본 노이즈). '
+        '<b>유일한 실제 비용은 휘프소 증가(0.054→0.093)</b> — 실시간엔 국면 전환이 더 잦으나 지속성 필터가 억제한다. '
+        '<span class="sub">(FRED_API_KEY 필요; `cli pit` 로 재현. 검증 기준일 2026-08.)</span></p></div>')
+
     # ── 적립식(DCA) 비교 ──
     dca = bt.get("dca", {}) if bt else {}
     dca_html = ""
@@ -666,6 +682,7 @@ def _validation_tab(valid):
 {concl}
 {bt_html}
 {disclosure}
+{pit_card}
 {dca_html}
 {nber_html}
 <p class="note">국면 판정 정확도(NBER)와 전략 수익/위험을 분리 검증. '맞히는 것'과 '버는 것'은 별개 — 둘 다 수치로 본다.</p>"""
