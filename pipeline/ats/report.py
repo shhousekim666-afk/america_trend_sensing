@@ -7,6 +7,7 @@
 
 import base64
 import json
+import re
 from collections import defaultdict
 
 import pandas as pd
@@ -25,6 +26,23 @@ GICS_KR = {"Information Technology": "정보기술", "Communication Services": "
            "Financials": "금융", "Industrials": "산업재", "Energy": "에너지",
            "Materials": "소재", "Health Care": "헬스케어", "Utilities": "유틸리티",
            "Real Estate": "리츠/부동산"}
+
+def _rsi_chip(rsi):
+    """RSI(14) 상시 표기 배지 — 강도별 색상. 제외는 안 하되 과열/모멘텀을 한눈에.
+    ≥70 과매수(빨강)·55~70 강세(초록)·45~55 중립(회색)·<45 약세(파랑). 단타 참고용."""
+    if rsi is None:
+        return '<span class="rsi" style="color:#6b7280">–</span>'
+    if rsi >= 70:
+        c, lab = "#ef4444", "과매수"
+    elif rsi >= 55:
+        c, lab = "#22c55e", "강세"
+    elif rsi >= 45:
+        c, lab = "#9ca3af", "중립"
+    else:
+        c, lab = "#3b82f6", "약세"
+    return (f'<span class="rsi" style="color:{c};border:1px solid {c}55;background:{c}18" '
+            f'title="RSI(14) {rsi} · {lab}">{rsi:g}</span>')
+
 
 REGIME_COLOR = {"recovery": "#3b82f6", "growth": "#22c55e", "slowdown": "#f59e0b",
                 "recession": "#ef4444", "transition": "#9ca3af"}
@@ -147,8 +165,12 @@ def _gather():
         name = c.name if c else r["rationale"].split(" [", 1)[0]
         sub = c.sub_industry if c else ""
         desc = f"{regime_kr} 국면 유리 업종({gkr})의 {factor_txt} 상위 종목. {sub}."
+        rsi_m = re.search(r"RSI\s([\d.]+)", detail)
+        rsi_val = float(rsi_m.group(1)) if rsi_m else None
+        metric = re.sub(r"\s·\sRSI\s[\d.]+", "", detail)  # RSI는 전용 컬럼으로 분리
         stocks_detail.append({"rank": r["rank"], "symbol": sym, "name": name,
-                              "gics_kr": gkr, "sub": sub, "metric": detail, "desc": desc})
+                              "gics_kr": gkr, "sub": sub, "metric": metric, "rsi": rsi_val,
+                              "desc": desc})
     te_list, seen = [], set()
     for t in te:
         if t.indicator_id in seen:
@@ -531,6 +553,7 @@ def build(out_path=None):
     stock_rows = "".join(
         f'<tr><td>{s["rank"]}</td><td class="sym">{s["symbol"]}</td>'
         f'<td><b>{s["name"]}</b></td><td>{s["gics_kr"]} · <span class="sub">{s["sub"]}</span></td>'
+        f'<td style="text-align:center">{_rsi_chip(s.get("rsi"))}</td>'
         f'<td class="mtr">{_hot_badge(s["metric"])}</td><td class="dsc mobhide">{s["desc"]}</td></tr>'
         for s in stocks_detail)
     # 종목이 실제로 어느 섹터에서 뽑혔는지(패널과 정합) — 설명 문구 동적화
@@ -640,6 +663,7 @@ h1{{font-size:21px}} h2{{font-size:15px;color:#93c5fd;margin-top:30px;border-bot
 table{{width:100%;border-collapse:collapse;font-size:13px}} th,td{{padding:6px 8px;text-align:left;border-bottom:1px solid #1f2937}}
 .sym{{font-weight:700;color:#93c5fd}}
 .sub{{color:#6b7280;font-size:12px}} .mtr{{color:#22c55e;font-size:12px;white-space:nowrap}} .dsc{{color:#9ca3af;font-size:12px;line-height:1.5}}
+.rsi{{display:inline-block;min-width:30px;text-align:center;font-size:12px;font-weight:700;border-radius:6px;padding:2px 6px}}
 table.heat{{font-size:11px;text-align:center}} table.heat td,table.heat th{{border:1px solid #0b0f17;text-align:center;padding:3px 4px;color:#fff}}
 table.heat td.yr{{background:#111827;font-weight:700}}
 .lg{{margin-right:14px;font-size:12px}} .lg i{{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:4px;vertical-align:-1px}}
@@ -741,9 +765,9 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 </div>
 <div class="card" style="margin-top:16px">
   <h4>S&P500 개별종목 — {reg.get('regime_kr')} 국면 주도 섹터, 팩터 상위</h4>
-  <p class="note" style="margin:0 0 10px">선별 방식: <b>위 섹터 패널의 양(+)모멘텀 favored 섹터 → 그 안에서 팩터 랭킹</b>. 즉 <b>화면에 뜨는 뜨거운 섹터({picked_secs_kr})에서 종목을 뽑습니다</b>(패널·종목 정합). 기본 엔진 6M 모멘텀, 옵션 trading_america 펀더멘털 3팩터(V/M/D). 음수 스코어(평균 이하)는 제외.</p>
+  <p class="note" style="margin:0 0 10px">선별 방식: <b>위 섹터 패널의 양(+)모멘텀 favored 섹터 → 그 안에서 팩터 랭킹</b>. 즉 <b>화면에 뜨는 뜨거운 섹터({picked_secs_kr})에서 종목을 뽑습니다</b>(패널·종목 정합). 기본 엔진 6M 모멘텀, 옵션 trading_america 펀더멘털 3팩터(V/M/D). 음수 스코어(평균 이하)는 제외.<br><b>RSI</b>는 상시 표기(제외 안 함): <span style="color:#ef4444;font-weight:700">≥70 과매수</span> · <span style="color:#22c55e;font-weight:700">55~70 강세</span> · <span style="color:#9ca3af;font-weight:700">45~55 중립</span> · <span style="color:#3b82f6;font-weight:700">&lt;45 약세</span>. RSI가 높을수록 모멘텀이 강하다는 뜻 — 중장기는 분할·익절 주의, 단타 진입 판단엔 참고가 됩니다.</p>
   <div class="tbl-wrap"><table>
-   <tr><th>#</th><th>종목</th><th>종목명</th><th>섹터 · 세부업종</th><th>지표</th><th class="mobhide">설명</th></tr>
+   <tr><th>#</th><th>종목</th><th>종목명</th><th>섹터 · 세부업종</th><th>RSI</th><th>지표</th><th class="mobhide">설명</th></tr>
    {stock_rows}
   </table></div>
 </div>
