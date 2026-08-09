@@ -8,11 +8,9 @@
 - 국면 분류/평활/검증/백테스트는 기존 엔진을 그대로 재사용(monthly/hist 주입)
 """
 import pandas as pd
-from sqlalchemy import select
 
 from .config import load_indicators
 from .db import SessionLocal
-from .models import MacroSeries
 from .regime import _load_monthly, _smooth, classify_history, evaluate
 from .sources import alfred
 from .strategy import backtest_strategy
@@ -20,12 +18,14 @@ from .strategy import backtest_strategy
 # 시장·비개정 지표: 개정이 없어 vintage 불필요(일간은 vintage 수가 한도 초과) → 현재값=발표시점값.
 # 개정되는 건 월간 매크로(고용/GDP/물가/생산/소매 등)뿐 → 이들만 ALFRED vintage 사용.
 _MARKET_SERIES = {"t10y2y", "hy_spread", "initial_claims", "sp500"}
+_DI_AXES = {"leading", "coincident", "lagging"}
 
 
 def build_pit_hist(key: str, start: str = "2006-01-01", end: str | None = None) -> pd.DataFrame:
     """발표시점 국면 타임라인(index=결정월말, cols=[L,C,Lag,regime,confidence,regime_s,provisional])."""
     inds = load_indicators()["indicators"]
-    fred_inds = [i for i in inds if i.get("source") == "fred" and i.get("series_id")]
+    fred_inds = [i for i in inds if i.get("source") == "fred" and i.get("series_id")
+                 and i.get("axis") in _DI_AXES]  # trigger 등 비-DI 지표 제외
     revised = [i for i in fred_inds if i["id"] not in _MARKET_SERIES]
     with SessionLocal() as session:  # 시장·비개정 지표(+주가)는 DB 현재값 그대로
         db_monthly = _load_monthly(session)

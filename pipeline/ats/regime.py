@@ -108,6 +108,8 @@ def classify_history(monthly: dict | None = None) -> pd.DataFrame:
     dir_signed: dict[str, tuple[pd.Series, str, float]] = {}
     for ind in inds:
         sid = ind["id"]
+        if ind.get("axis") not in AXES:  # trigger 등 비-DI 지표는 확산지수에서 제외(수집만)
+            continue
         if sid not in monthly:
             continue
         eff = _contribution(monthly[sid], ind)
@@ -200,7 +202,7 @@ def _smooth(regimes: list, n: int = 3, n_fast: int = 2, fast=("recession",)) -> 
 
 
 def _recession_trigger(session) -> dict:
-    """침체 경보 이원화(§2.3 + 투자전문가 권고): 실업률 연속상승 OR HY스프레드 급확대."""
+    """침체 경보 삼중화: 실업률 연속상승 OR HY스프레드 급확대 OR Sahm Rule(≥0.5) 발동."""
     monthly = _load_monthly(session)
     s = monthly.get("unrate")
     hy = monthly.get("hy_spread")
@@ -232,7 +234,15 @@ def _recession_trigger(session) -> dict:
         parts.append(f"HY스프레드 {hy_last:.2f}(12M평균 {hy_avg:.2f},"
                      f"{'급확대⚠' if out['hy_alert'] else '안정'})")
 
-    out["alert"] = out["unemp_alert"] or out["hy_alert"]
+    sahm = monthly.get("sahm")  # Sahm Rule 실시간: ≥0.5 = 침체 시작 신호(검증된 실시간 룰)
+    out["sahm_alert"] = False
+    if sahm is not None and len(sahm) >= 1:
+        sahm_last = sahm.dropna().iloc[-1] if not sahm.dropna().empty else None
+        if sahm_last is not None:
+            out["sahm_alert"] = bool(sahm_last >= 0.5)
+            parts.append(f"Sahm {sahm_last:.2f}({'발동⚠' if out['sahm_alert'] else '정상'})")
+
+    out["alert"] = out["unemp_alert"] or out["hy_alert"] or out["sahm_alert"]
     out["detail"] = " / ".join(parts)
     return out
 
@@ -291,6 +301,8 @@ def explain_current() -> dict:
     per = []
     for ind in cfg["indicators"]:
         sid = ind["id"]
+        if ind.get("axis") not in AXES:  # trigger 등 비-DI 지표 제외(수집만)
+            continue
         if sid not in monthly:
             continue
         raw = _direction(monthly[sid], ind.get("transform", "")).dropna()  # 값 방향(게이트 전)

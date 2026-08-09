@@ -195,6 +195,21 @@
       "note": "영상: 실업률보다 더 후행하나 핵심 아님 → weight 0(참고만).",
       "min_valid": 5,
       "max_valid": 100
+    },
+    {
+      "id": "sahm",
+      "name": "Sahm Rule 실시간(침체 트리거)",
+      "axis": "trigger",
+      "source": "fred",
+      "series_id": "SAHMREALTIME",
+      "freq": "monthly",
+      "core": false,
+      "weight": 0.0,
+      "invert": false,
+      "transform": "level",
+      "note": "axis=trigger → DI 확산지수에서 제외(수집만). 침체 트리거(≥0.5)에 사용. 실시간 발표값이라 PIT 친화.",
+      "min_valid": -1,
+      "max_valid": 10
     }
   ],
   "_te_overlays_comment": "TE 페이지에서 현재값+예측치(Forecast)만 수집(과거 시계열은 indicators 의 FRED로). 사용자 지정 소스 ko.tradingeconomics.com. §2.3 침체 트리거(실업률 Previous/Forecast 대비)·PMI 50기준 확인에 사용.",
