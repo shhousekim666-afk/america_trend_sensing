@@ -633,20 +633,20 @@ def _validation_tab(valid):
         '주가는 정당한 선행지표지만(모든 인베스트먼트 클락이 시장신호 사용), 이 도구의 우위를 "매크로 예측력"으로 과신하면 안 된다.</p></div>')
 
     pit_card = (
-        '<div class="card" style="border-color:#22c55e55"><h4>✅ PIT(발표시점) 무편향 검증 — look-ahead 편향 규모</h4>'
-        '<p class="cap" style="margin:0 0 8px">가장 큰 방법론적 숙제였던 <b>발표시점(point-in-time) 백테스트</b>를 구현·수행. '
-        'ALFRED 아카이브로 <b>각 시점에 실제로 알려져 있던 vintage 값</b>만 써서 국면을 재구성(248개월, 개정·미래정보 제거). '
-        '개정 데이터로 만든 현재 수치와 비교:</p>'
+        '<div class="card" style="border-color:#f59e0b55"><h4>⚠ PIT(발표시점) 무편향 검증 — look-ahead 편향은 실재한다</h4>'
+        '<p class="cap" style="margin:0 0 8px">가장 큰 방법론적 숙제였던 <b>발표시점(point-in-time) 백테스트</b> 구현·수행. '
+        'ALFRED 아카이브로 <b>각 시점에 실제로 알려져 있던 vintage 값</b>만 써서 국면 재구성. '
+        '공정 비교 위해 <b>발표시점·개정 두 경로를 완전히 동일한 실시간 재구성 방식</b>으로 만들어 값만 다르게 함(2006~, 248개월, 침체 2회):</p>'
         '<div class="tbl-wrap"><table>'
         '<tr><th>기준</th><th>Precision</th><th>Recall</th><th>F1</th><th>공격형 CAGR/MDD/Sharpe</th><th>휘프소</th></tr>'
-        '<tr style="color:#22c55e;font-weight:700"><td>발표시점(PIT)</td><td>0.54</td><td>0.70</td><td>0.61</td><td>12.0% / −28% / 0.74</td><td>0.093</td></tr>'
-        '<tr><td>개정(현재)</td><td>0.42</td><td>0.71</td><td>0.53</td><td>11.4% / −28% / 0.72</td><td>0.054</td></tr>'
+        '<tr style="color:#f59e0b;font-weight:700"><td>발표시점(PIT)</td><td>0.35</td><td>0.35</td><td>0.35</td><td>9.5% / −46% / 0.59</td><td>0.097</td></tr>'
+        '<tr><td>개정(현재)</td><td>0.39</td><td>0.45</td><td>0.42</td><td>9.4% / −44% / 0.57</td><td>0.052</td></tr>'
         '</table></div>'
-        '<p class="cap" style="margin-top:8px"><b>결론: look-ahead 편향은 미미하며 엣지는 데이터 개정의 산물이 아니다.</b> '
-        '지표가 방향성(기울기·YoY) 기반이라 레벨 개정에 강하고, 타이밍 엣지의 핵심인 시장·선행축은 애초에 개정이 없다. '
-        'PIT가 오히려 소폭 나은 건 실시간 신호가 때때로 더 이르기 때문(+소표본 노이즈). '
-        '<b>유일한 실제 비용은 휘프소 증가(0.054→0.093)</b> — 실시간엔 국면 전환이 더 잦으나 지속성 필터가 억제한다. '
-        '<span class="sub">(FRED_API_KEY 필요; `cli pit` 로 재현. 검증 기준일 2026-08.)</span></p></div>')
+        '<p class="cap" style="margin-top:8px"><b>결론(정직):</b> '
+        '① <b>침체 탐지는 실시간에서 확실히 나빠진다</b>(recall 0.45→0.35) — look-ahead 편향이 실재하며, 실시간엔 침체를 더 늦게 잡는다. '
+        '② <b>전략 수익은 vintage에 견고</b>(공격형 9.4↔9.5%) — 엣지가 비개정 시장·선행축에 실려 있어서다. '
+        '③ <b>단, 엄격한 실시간 타이밍의 MDD는 −44~46%</b>로, 위 헤드라인 백테스트(−28%, 단순 1M-lag 근사)보다 <b>훨씬 깊다</b> — 실시간 방어는 더 느리다. '
+        '<span class="sub">(위 표는 2006+ 실시간 재구성 기준이라 상단 헤드라인(2000+, 단순 lag)과 수치가 다름. FRED_API_KEY 필요, `cli pit` 재현. 2026-08.)</span></p></div>')
 
     # ── 적립식(DCA) 비교 ──
     dca = bt.get("dca", {}) if bt else {}
