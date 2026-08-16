@@ -116,7 +116,7 @@ def _gather():
         indicators = []
         for iid in sorted(order, key=order.get):
             meta = metas.get(iid)
-            if not meta:
+            if not meta or meta.axis not in AXIS_KR:
                 continue
             rows = s.execute(
                 select(MacroSeries.obs_date, MacroSeries.value)
@@ -181,10 +181,16 @@ def _gather():
     sectors = [{"symbol": k, "name": uni["sector_etfs"].get(k, ""), "mom": v}
                for k, v in sorted(sec_mom.items(), key=lambda x: x[1], reverse=True)]
     explain = explain_current()
+    # NBER 정답 데이터가 일시적으로 unavailable해도 전략 백테스트는 계속 표시한다.
     try:
-        valid = {"nber": evaluate(), "strategy": backtest_strategy()}
-    except Exception:
-        valid = {"nber": {}, "strategy": {}}
+        nber = evaluate()
+    except Exception as exc:
+        nber = {"error": f"NBER 검증 실패: {type(exc).__name__}"}
+    try:
+        strategy = backtest_strategy()
+    except Exception as exc:
+        strategy = {"error": f"전략 백테스트 실패: {type(exc).__name__}"}
+    valid = {"nber": nber, "strategy": strategy}
     return reg, timeline, rec_by, te_list, sectors, indicators, uni, stocks_detail, explain, valid
 
 
@@ -555,8 +561,13 @@ def _exec_guide(uni, reg, valid=None):
     bt = (valid or {}).get("strategy", {})
     byk = {v["key"]: v for v in bt.get("variants", [])}
     bk, bal = byk.get("basket", {}), byk.get("basket_bal", {})
-    perf = (f'CAGR {bk["cagr"]*100:.1f}% · MDD {bk["mdd"]*100:.0f}% · Sharpe {bk["sharpe"]} — SPY 3개 지표 모두 초과'
-            if bk else "백테스트 SPY 초과")
+    bench = bt.get("benchmark", {})
+    beats = bool(bk and bench and bk.get("cagr", 0) > bench.get("cagr", 0)
+                 and bk.get("mdd", -1) > bench.get("mdd", -1)
+                 and bk.get("sharpe", 0) > bench.get("sharpe", 0))
+    perf = (f'CAGR {bk["cagr"]*100:.1f}% · MDD {bk["mdd"]*100:.0f}% · Sharpe {bk["sharpe"]} — '
+            f'{"SPY 3개 지표 모두 초과" if beats else "SPY 대비 일부 지표 우위"}'
+            if bk else "백테스트 결과 없음")
     bal_perf = (f'CAGR {bal["cagr"]*100:.1f}% / MDD {bal["mdd"]*100:.0f}% / Sharpe {bal["sharpe"]}' if bal else "")
     return f"""
 <div class="card" style="border-color:#22c55e">
@@ -577,7 +588,33 @@ def _exec_guide(uni, reg, valid=None):
 </div>"""
 
 
-def _validation_tab(valid):
+def _current_validation_panel(reg, uni, bt):
+    """역사적 검증과 현재 국면 적용 판단을 분리해 보여주는 패널."""
+    regime = reg.get("regime", "transition")
+    label = reg.get("regime_kr", regime)
+    playbook = uni.get("regime_playbook", {}).get(regime, {})
+    basket = uni.get("regime_index_basket", {}).get(regime, {})
+    safe = set(uni.get("safe_assets", []))
+    equity = sum(v for symbol, v in basket.items() if symbol not in safe)
+    names = uni.get("index_etfs", {})
+    rows = "".join(
+        f'<tr><td><b>{symbol}</b></td><td>{names.get(symbol, "")}</td><td>{weight}%</td></tr>'
+        for symbol, weight in basket.items()
+    )
+    bt_period = bt.get("period", "") if bt else ""
+    status = "확정" if not reg.get("provisional") else "잠정"
+    return f"""
+<div class="card" style="border-color:#3b82f6">
+  <h4>현재 국면 적용 판단 — {label} ({status})</h4>
+  <p class="cap">기준일 <b>{reg.get('as_of', '—')}</b> · 신뢰도 <b>{reg.get('confidence', '—')}</b> · 역사적 백테스트 기간 <b>{bt_period or '—'}</b></p>
+  <div class="kpi"><span>현재 주식비중</span><b>{equity}%</b><span>적용 스타일</span><b>{playbook.get('style', '중립·관망')}</b></div>
+  <div class="tbl-wrap"><table><tr><th>티커</th><th>자산</th><th>목표비중</th></tr>{rows}</table></div>
+  <p class="note" style="margin-bottom:0"><b>현재 적용:</b> {playbook.get('stance', '중립·관망')} · {playbook.get('index_note', '')}<br>
+  <b>중요:</b> 아래 역사적 성과표는 전체 기간의 고정 검증입니다. 국면이 바뀌어도 과거 CAGR·MDD·Sharpe를 다시 쓰지 않습니다. 실제 의사결정에는 이 패널의 현재 국면 바스켓을 사용합니다.</p>
+</div>"""
+
+
+def _validation_tab(valid, reg=None, uni=None):
     """검증 탭: NBER 정량검증 + 전략 백테스트(자산곡선·지표)."""
     nber = valid.get("nber", {})
     bt = valid.get("strategy", {})
@@ -592,6 +629,10 @@ def _validation_tab(valid):
             f'<span>Recall</span><b>{nber["recall"]}</b><span>F1</span><b>{nber["f1"]}</b></div>'
             f'<p class="cap">휘프소율 raw {nber["whipsaw_raw"]} → 평활 {nber["whipsaw_smoothed"]} · '
             f'침체 시차(음수=선행): {ll}</p></div>')
+    elif nber.get("error"):
+        nber_html = (f'<div class="card" style="border-color:#f59e0b55">'
+                     f'<h4>⚠ NBER 침체 검증 일시 불가</h4><p class="cap">{nber["error"]} '
+                     f'일반 전략 백테스트는 독립적으로 표시합니다.</p></div>')
     bt_html = ""
     if bt and "variants" in bt:
         def row(s, kind=""):
@@ -599,7 +640,8 @@ def _validation_tab(valid):
                    "best": ' style="color:#f59e0b;font-weight:700"'}.get(kind, "")
             extra = "" if kind == "bench" else f'<td>{s.get("ann_turnover","")}</td>'
             mark = " ★" if kind == "best" else (" (벤치)" if kind == "bench" else "")
-            return (f'<tr{cls}><td>{s["label"]}{mark}</td><td>{s["cagr"]*100:.1f}%</td>'
+            label = s["label"].replace("★SPY초과", "")
+            return (f'<tr{cls}><td>{label}{mark}</td><td>{s["cagr"]*100:.1f}%</td>'
                     f'<td>{s["mdd"]*100:.0f}%</td><td>{s["sharpe"]}</td>'
                     f'<td>{s.get("ann_turnover","-") if kind!="bench" else "-"}</td></tr>')
         rows = row(bt["benchmark"], "bench")
@@ -609,8 +651,8 @@ def _validation_tab(valid):
             f'<div class="card"><h4>전략 백테스트 vs SPY — 변형 비교 ({bt["period"]})</h4>'
             f'<div class="tbl-wrap"><table><tr><th>전략</th><th>CAGR</th><th>MDD</th><th>Sharpe</th><th>연회전</th></tr>{rows}</table></div>'
             f'<p class="cap">비용 편도 {bt["params"]["cost_oneway"]*100}%(스프레드·슬리피지 포함) · 추세필터 {bt["params"]["trend_filter"]} · '
-            f'Sharpe는 무위험수익률(3M 국채) 차감한 초과수익 기준. '
-            f'★=위험조정성과 최적(=권고 바스켓). <b>공격형</b>은 SPY를 CAGR·MDD·Sharpe <b>3개 모두 초과</b>. <b>균형형</b>은 수익은 SPY 아래지만 낙폭이 가장 작다. 섹터선택 변형은 알파 없음.</p>'
+            f'Sharpe는 무위험수익률(3M 국채, {bt["params"].get("risk_free", "")}) 차감한 초과수익 기준. '
+            f'★=위험조정성과 최적(=권고 바스켓). 결과는 실행 시점의 바스켓·가격·금리 데이터로 계산됩니다.</p>'
             f'<canvas id="btChart" height="80"></canvas></div>')
     # 결론 수치 — 백테스트 결과에서 동적 추출(하드코딩 동기화 문제 제거)
     byk = {v["key"]: v for v in bt.get("variants", [])} if bt else {}
@@ -619,10 +661,14 @@ def _validation_tab(valid):
     def _fmt(d):
         return (f'CAGR {d.get("cagr",0)*100:.1f}% / MDD {d.get("mdd",0)*100:.0f}% / Sharpe {d.get("sharpe",0)}'
                 if d else "—")
+    beats_spy = bool(bk and bch and bk.get("cagr", 0) > bch.get("cagr", 0)
+                     and bk.get("mdd", -1) > bch.get("mdd", -1)
+                     and bk.get("sharpe", 0) > bch.get("sharpe", 0))
+    comparison = "CAGR·MDD·Sharpe 3개 모두 우위" if beats_spy else "SPY 대비 일부 지표 우위 — 초과성과를 단정하지 않음"
     concl = (
         f'<p class="prose"><b>레버리지 없이 SPY를 이긴다.</b> <b>공격형(권고 바스켓)</b>은 좋은 국면(회복·성장)과 둔화까지 '
         f'고베타 <b>QQQ 중심</b>으로 채워 상승을 먹고, 안전자산(금·채권) 슬리브로 변동성을 잡고, 침체에만 안전자산을 최대화한다 → '
-        f'<b>{_fmt(bk)}</b> 로 SPY(<b>{_fmt(bch)}</b>) 대비 <b>수익·낙폭·효율 모두 우위</b>. '
+        f'<b>{_fmt(bk)}</b> 로 SPY(<b>{_fmt(bch)}</b>) 대비 <b>{comparison}</b>. '
         f'더 안정적인 걸 원하면 <b>균형형</b>({_fmt(bal)}, 낙폭 최소)을 선택. (revised 데이터+1M lag, vintage 미적용)</p>')
     disclosure = (
         '<div class="card" style="border-color:#f59e0b55"><h4>⚠ 정직 공시 — 초과수익의 출처</h4>'
@@ -633,7 +679,7 @@ def _validation_tab(valid):
         '주가는 정당한 선행지표지만(모든 인베스트먼트 클락이 시장신호 사용), 이 도구의 우위를 "매크로 예측력"으로 과신하면 안 된다.</p></div>')
 
     pit_card = (
-        '<div class="card" style="border-color:#f59e0b55"><h4>⚠ PIT(발표시점) 무편향 검증 — look-ahead 편향은 실재한다</h4>'
+        '<div class="card" style="border-color:#f59e0b55"><h4>⚠ PIT(발표시점) 무편향 검증 — 마지막 검증 결과</h4>'
         '<p class="cap" style="margin:0 0 8px">가장 큰 방법론적 숙제였던 <b>발표시점(point-in-time) 백테스트</b> 구현·수행. '
         'ALFRED 아카이브로 <b>각 시점에 실제로 알려져 있던 vintage 값</b>만 써서 국면 재구성. '
         '공정 비교 위해 <b>발표시점·개정 두 경로를 완전히 동일한 실시간 재구성 방식</b>으로 만들어 값만 다르게 함(2006~, 248개월, 침체 2회):</p>'
@@ -646,7 +692,7 @@ def _validation_tab(valid):
         '① <b>침체 탐지는 실시간에서 확실히 나빠진다</b>(recall 0.45→0.35) — look-ahead 편향이 실재하며, 실시간엔 침체를 더 늦게 잡는다. '
         '② <b>전략 수익은 vintage에 견고</b>(공격형 9.4↔9.5%) — 엣지가 비개정 시장·선행축에 실려 있어서다. '
         '③ <b>단, 엄격한 실시간 타이밍의 MDD는 −44~46%</b>로, 위 헤드라인 백테스트(−28%, 단순 1M-lag 근사)보다 <b>훨씬 깊다</b> — 실시간 방어는 더 느리다. '
-        '<span class="sub">(위 표는 2006+ 실시간 재구성 기준이라 상단 헤드라인(2000+, 단순 lag)과 수치가 다름. FRED_API_KEY 필요, `cli pit` 재현. 2026-08.)</span></p></div>')
+        '<span class="sub">(마지막 실행 결과: 2026-08. 위 표는 2006+ 실시간 재구성 기준이라 상단 헤드라인(2000+, 단순 lag)과 수치가 다름. FRED_API_KEY가 있는 환경에서 `cli pit`를 다시 실행해야 갱신됩니다.)</span></p></div>')
 
     # ── 적립식(DCA) 비교 ──
     dca = bt.get("dca", {}) if bt else {}
@@ -678,7 +724,9 @@ def _validation_tab(valid):
             f'금 비중은 25~35%에서 매끄럽게 변해 과적합은 아니지만(높일수록 수익↓·낙폭↓), 금 우위가 미래에도 이어진다는 보장은 없다. '
             f'"QQQ보다 수익↑+낙폭↓ 동시"는 무레버리지로 불가능 — 금쿠션은 <b>QQQ 수익을 약간 양보하고 낙폭을 사는</b> 트레이드오프다.</p></div>')
 
+    current = _current_validation_panel(reg, uni, bt) if reg and uni else ""
     return f"""
+{current}
 {concl}
 {bt_html}
 {disclosure}
@@ -972,7 +1020,7 @@ figure{{margin:0}} figure img{{width:100%;border-radius:8px;border:1px solid #1f
 <h2>실행 가이드 — 수익+방어 균형 전략</h2>
 {_exec_guide(uni, reg, valid)}
 <h2>전략 검증 — "맞히는가" & "버는가"</h2>
-{_validation_tab(valid)}
+{_validation_tab(valid, reg, uni)}
 </div>
 
 <!-- ===== 탭4 설명 ===== -->

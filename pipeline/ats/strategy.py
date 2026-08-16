@@ -15,9 +15,8 @@ from sqlalchemy import select
 
 from .config import load_universe
 from .db import SessionLocal
-from .models import MarketPrice
+from .models import MacroSeries, MarketPrice
 from .regime import classify_history
-from .sources import fred
 
 RISK = {"recovery": 1.0, "growth": 1.0, "slowdown": 0.6, "recession": 0.25, "transition": 0.5}
 COST = 0.003          # 편도 거래비용: 스프레드+슬리피지 포함 현실화(기존 0.1%는 거래세 수준)
@@ -26,17 +25,21 @@ TOPN = 4
 
 
 def _risk_free_monthly(index):
-    """FRED DGS3MO(3개월 국채, 연%) → 월 무위험수익률 Series. Sharpe = 초과수익 기준.
-    네트워크 실패 시 0(보수적, 기존 동작)으로 폴백."""
-    try:
-        pts = fred.fetch("DGS3MO", start_date="2005-01-01")
-        if not pts:
-            return None
-        s = pd.Series({pd.Timestamp(d): v for d, v in pts}).sort_index()
-        s = s.resample("ME").last().ffill() / 100.0 / 12.0  # 연% → 월 단순수익률
-        return s.reindex(index).ffill().fillna(0.0)
-    except Exception:
+    """DB에 수집된 FRED DGS3MO(연%)를 월 무위험수익률로 변환.
+
+    백테스트 중 네트워크를 다시 호출하지 않아 CLI·대시보드·CI가 항상
+    동일한 Sharpe를 산출한다. 수집 전 DB는 None으로 폴백한다."""
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(MacroSeries.obs_date, MacroSeries.value)
+            .where(MacroSeries.series_id == "risk_free_3m")
+            .order_by(MacroSeries.obs_date)
+        ).all()
+    if not rows:
         return None
+    s = pd.Series({pd.Timestamp(d): v for d, v in rows}).sort_index()
+    s = s.resample("ME").last().ffill() / 100.0 / 12.0  # 연% → 월 단순수익률
+    return s.reindex(index).ffill().fillna(0.0)
 
 
 def _monthly_prices(session, symbols):
@@ -243,7 +246,8 @@ def backtest_strategy(start="2006-01-01", hist=None) -> dict:
     return {
         "period": f"{bench[0][0].date()} ~ {bench[-1][0].date()}",
         "benchmark": benchmark, "variants": variants, "best": best["key"],
-        "params": {"cost_oneway": COST, "trend_filter": "SPY 10M MA", "risk_beta": RISK},
+        "params": {"cost_oneway": COST, "trend_filter": "SPY 10M MA", "risk_beta": RISK,
+                   "risk_free": "DB:FRED DGS3MO" if rf_m is not None else "0% (DGS3MO 미수집)"},
         "curves": curves,
         "dca": _build_dca(raw_curves, rets, idx, regime_s,
                           {"basket": _BASKET, "basket_bal": _BASKET_BAL}),

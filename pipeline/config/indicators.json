@@ -210,6 +210,21 @@
       "note": "axis=trigger → DI 확산지수에서 제외(수집만). 침체 트리거(≥0.5)에 사용. 실시간 발표값이라 PIT 친화.",
       "min_valid": -1,
       "max_valid": 10
+    },
+    {
+      "id": "risk_free_3m",
+      "name": "3개월 미 국채 수익률(백테스트 기준)",
+      "axis": "reference",
+      "source": "fred",
+      "series_id": "DGS3MO",
+      "freq": "daily",
+      "core": false,
+      "weight": 0.0,
+      "invert": false,
+      "transform": "level",
+      "note": "Sharpe 초과수익 계산용. 국면 DI에서 제외하고 DB에 저장해 실행 결과를 결정적으로 유지.",
+      "min_valid": -5,
+      "max_valid": 25
     }
   ],
   "_te_overlays_comment": "TE 페이지에서 현재값+예측치(Forecast)만 수집(과거 시계열은 indicators 의 FRED로). 사용자 지정 소스 ko.tradingeconomics.com. §2.3 침체 트리거(실업률 Previous/Forecast 대비)·PMI 50기준 확인에 사용.",
