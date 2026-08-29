@@ -184,6 +184,88 @@ def _stats(curve, label, key, rf_m=None):
     }
 
 
+def _window_stats(curve, start, end, rf_m=None):
+    """자산곡선에서 특정 기간의 수익·MDD를 추출한다."""
+    if not curve:
+        return None
+    s = pd.Series(dict(curve)).sort_index()
+    s = s[(s.index >= pd.Timestamp(start)) & (s.index <= pd.Timestamp(end))]
+    if len(s) < 2:
+        return None
+    r = s.pct_change().dropna()
+    ex = r - rf_m.reindex(r.index).fillna(0.0) if rf_m is not None else r
+    return {
+        "start": s.index[0].date().isoformat(), "end": s.index[-1].date().isoformat(),
+        "return": round(float(s.iloc[-1] / s.iloc[0] - 1), 3),
+        "mdd": round(float((s / s.cummax() - 1).min()), 3),
+        "sharpe": round(float(ex.mean() / ex.std() * np.sqrt(12)), 2) if ex.std() else 0.0,
+        "months": int(len(s)),
+    }
+
+
+def _period_analysis(curves, rf_m, idx):
+    """5년 롤링 성과와 주요 위기구간 성과를 요약한다."""
+    keys = [k for k in ("benchmark", "basket", "basket_bal") if k in curves]
+    rolling = {}
+    for key in keys:
+        curve = curves[key]
+        s = pd.Series(dict(curve)).sort_index()
+        windows = []
+        for end_pos in range(59, len(s)):
+            end = s.index[end_pos]
+            start = s.index[end_pos - 59]
+            stat = _window_stats(curve, start, end, rf_m)
+            if stat:
+                stat["end"] = end.date().isoformat()
+                windows.append(stat)
+        if windows:
+            latest = windows[-1]
+            rolling[key] = {
+                "window_months": 60,
+                "latest": latest,
+                "worst_return": min(windows, key=lambda x: x["return"]),
+                "worst_mdd": min(windows, key=lambda x: x["mdd"]),
+            }
+
+    crises = {
+        "2008 금융위기": ("2008-01-31", "2009-12-31"),
+        "2020 코로나 충격": ("2020-02-29", "2020-06-30"),
+        "2022 금리·성장 충격": ("2022-01-31", "2022-12-31"),
+    }
+    crisis = {name: {key: _window_stats(curves[key], start, end, rf_m)
+                     for key in keys}
+              for name, (start, end) in crises.items()}
+    return {"rolling": rolling, "crisis": crisis}
+
+
+def _stress_analysis(uni):
+    """국면별 바스켓에 한 회의 충격을 적용한 단순 시나리오.
+    예측값이 아니라 포지션 크기와 상반된 상관관계를 점검하는 보조 지표다."""
+    shocks = {
+        "일반 리스크오프": {"equity": -0.10, "TLT": 0.03, "GLD": 0.02, "SHY": 0.005},
+        "급격한 침체": {"equity": -0.30, "TLT": 0.10, "GLD": 0.08, "SHY": 0.01},
+        "금리 급등": {"equity": -0.15, "TLT": -0.15, "GLD": -0.05, "SHY": 0.01},
+    }
+    baskets = uni.get("regime_index_basket", {})
+    out = {}
+    for regime, basket in baskets.items():
+        out[regime] = {}
+        for scenario, shock in shocks.items():
+            impact = 0.0
+            for symbol, weight in basket.items():
+                if symbol in ("TLT", "GLD", "SHY"):
+                    move = shock[symbol]
+                elif symbol in ("EEM", "EFA", "IWM"):
+                    move = shock["equity"] * 1.15
+                elif symbol == "QQQ":
+                    move = shock["equity"] * 1.10
+                else:
+                    move = shock["equity"]
+                impact += weight / 100.0 * move
+            out[regime][scenario] = round(impact, 3)
+    return {"scenarios": list(shocks), "by_regime": out}
+
+
 def backtest_strategy(start="2006-01-01", hist=None) -> dict:
     uni = load_universe()
     pb = uni["regime_playbook"]
@@ -249,6 +331,8 @@ def backtest_strategy(start="2006-01-01", hist=None) -> dict:
         "params": {"cost_oneway": COST, "trend_filter": "SPY 10M MA", "risk_beta": RISK,
                    "risk_free": "DB:FRED DGS3MO" if rf_m is not None else "0% (DGS3MO 미수집)"},
         "curves": curves,
+        "analysis": _period_analysis(raw_curves, rf_m, idx),
+        "stress": _stress_analysis(uni),
         "dca": _build_dca(raw_curves, rets, idx, regime_s,
                           {"basket": _BASKET, "basket_bal": _BASKET_BAL}),
     }

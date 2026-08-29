@@ -130,6 +130,7 @@ def _gather():
                 "id": iid, "name": meta.name, "axis": meta.axis,
                 "axis_kr": AXIS_KR.get(meta.axis, meta.axis),
                 "cur": series[-1][1] if series else None,
+                "latest_obs": rows[-1][0].isoformat() if rows else "—",
                 "unit": CHART_UNIT.get(kind, ""),
                 "explain": EXPLAIN.get(iid, ""), "series": series,
                 "te_b64": _b64(CHART_DIR / f"{iid}.png"),  # TE 원본 차트
@@ -388,7 +389,8 @@ def _indicator_cards(indicators, eff_by_id):
             html += (
                 f'<div class="card"><div class="ihead">'
                 f'<b>{ind["name"]}</b><span class="badge" style="background:{col}33;color:{col}">{ind["axis_kr"]}</span></div>'
-                f'<div class="icur">현재 <b>{ind["cur"]}{ind.get("unit","")}</b> {badge}</div>'
+                f'<div class="icur">현재 <b>{ind["cur"]}{ind.get("unit","")}</b> {badge} '
+                f'<span class="sub">· 관측일 {ind.get("latest_obs", "—")}</span></div>'
                 f'<canvas id="c_{ind["id"]}" height="120"></canvas>'
                 f'<p class="iexp">{ind["explain"]}<span style="color:{ec}"> ▶ 지금: 값 {DIR_KR.get(e.get("raw_dir",0),"")} → {EFFECT_KR.get(eff,"")}{inv}</span></p>'
                 f'{te_img}</div>'
@@ -601,6 +603,11 @@ def _current_validation_panel(reg, uni, bt):
         f'<tr><td><b>{symbol}</b></td><td>{names.get(symbol, "")}</td><td>{weight}%</td></tr>'
         for symbol, weight in basket.items()
     )
+    stress = (bt or {}).get("stress", {}).get("by_regime", {}).get(regime, {})
+    stress_rows = "".join(
+        f'<tr><td>{scenario}</td><td>{impact * 100:.1f}%</td></tr>'
+        for scenario, impact in stress.items()
+    )
     bt_period = bt.get("period", "") if bt else ""
     status = "확정" if not reg.get("provisional") else "잠정"
     return f"""
@@ -609,8 +616,51 @@ def _current_validation_panel(reg, uni, bt):
   <p class="cap">기준일 <b>{reg.get('as_of', '—')}</b> · 신뢰도 <b>{reg.get('confidence', '—')}</b> · 역사적 백테스트 기간 <b>{bt_period or '—'}</b></p>
   <div class="kpi"><span>현재 주식비중</span><b>{equity}%</b><span>적용 스타일</span><b>{playbook.get('style', '중립·관망')}</b></div>
   <div class="tbl-wrap"><table><tr><th>티커</th><th>자산</th><th>목표비중</th></tr>{rows}</table></div>
+  <div class="tbl-wrap" style="margin-top:10px"><table><tr><th>단순 충격 시나리오</th><th>현재 바스켓 예상 영향</th></tr>{stress_rows}</table></div>
   <p class="note" style="margin-bottom:0"><b>현재 적용:</b> {playbook.get('stance', '중립·관망')} · {playbook.get('index_note', '')}<br>
-  <b>중요:</b> 아래 역사적 성과표는 전체 기간의 고정 검증입니다. 국면이 바뀌어도 과거 CAGR·MDD·Sharpe를 다시 쓰지 않습니다. 실제 의사결정에는 이 패널의 현재 국면 바스켓을 사용합니다.</p>
+  <b>중요:</b> 아래 역사적 성과표는 전체 기간의 고정 검증입니다. 국면이 바뀌어도 과거 CAGR·MDD·Sharpe를 다시 쓰지 않습니다. 충격 시나리오는 예측이 아닌 단순 민감도 계산입니다. 실제 의사결정에는 이 패널의 현재 국면 바스켓을 사용합니다.</p>
+</div>"""
+
+
+def _performance_analysis(bt):
+    """5년 롤링 최근값과 위기구간 성과를 검증 탭에 표시한다."""
+    analysis = (bt or {}).get("analysis", {})
+    rolling = analysis.get("rolling", {})
+    crisis = analysis.get("crisis", {})
+    labels = {"benchmark": "SPY", "basket": "공격형 바스켓", "basket_bal": "균형형 바스켓"}
+    if not rolling and not crisis:
+        return ""
+
+    def pct(v):
+        return f"{v * 100:.1f}%" if v is not None else "—"
+
+    rrows = ""
+    for key in ("benchmark", "basket", "basket_bal"):
+        item = rolling.get(key)
+        if not item:
+            continue
+        latest = item["latest"]
+        worst = item["worst_mdd"]
+        rrows += (f"<tr><td>{labels[key]}</td><td>{latest['end']}</td>"
+                  f"<td>{pct(latest['return'])}</td><td>{pct(latest['mdd'])}</td>"
+                  f"<td>{latest['sharpe']:.2f}</td><td>{pct(worst['mdd'])}</td></tr>")
+
+    crows = ""
+    for name, values in crisis.items():
+        cells = [f"<td>{name}</td>"]
+        for key in ("benchmark", "basket", "basket_bal"):
+            stat = values.get(key)
+            cells.append(f"<td>{pct(stat['return'])} / {pct(stat['mdd'])}" if stat else "<td>—")
+            cells[-1] += "</td>"
+        crows += "<tr>" + "".join(cells) + "</tr>"
+
+    return f"""
+<div class="card">
+  <h4>추가 검증 — 최근 5년 롤링·주요 위기 구간</h4>
+  <p class="cap">전체기간 평균에 가려지는 실패 구간을 확인하기 위한 보조 검증입니다. 롤링 성과는 매월 직전 60개월, 위기 성과는 해당 구간의 누적수익률 / 최대낙폭입니다.</p>
+  <div class="tbl-wrap"><table><tr><th>전략</th><th>최근 기준월</th><th>5년 수익</th><th>5년 MDD</th><th>5년 Sharpe</th><th>롤링 최악 MDD</th></tr>{rrows}</table></div>
+  <div class="tbl-wrap" style="margin-top:10px"><table><tr><th>구간</th><th>SPY</th><th>공격형</th><th>균형형</th></tr>{crows}</table></div>
+  <p class="note" style="margin-bottom:0">위기 구간 성과는 과거 사례이며 미래 손실을 제한한다는 보장이 없습니다. 현재 국면 적용 판단은 위의 현재 국면 패널을 우선합니다.</p>
 </div>"""
 
 
@@ -725,10 +775,12 @@ def _validation_tab(valid, reg=None, uni=None):
             f'"QQQ보다 수익↑+낙폭↓ 동시"는 무레버리지로 불가능 — 금쿠션은 <b>QQQ 수익을 약간 양보하고 낙폭을 사는</b> 트레이드오프다.</p></div>')
 
     current = _current_validation_panel(reg, uni, bt) if reg and uni else ""
+    analysis_html = _performance_analysis(bt)
     return f"""
 {current}
 {concl}
 {bt_html}
+{analysis_html}
 {disclosure}
 {pit_card}
 {dca_html}
@@ -741,16 +793,26 @@ _MONTHLY_MACRO = ("payems", "indpro", "retail_sales", "unrate", "cpi",
 
 
 def _data_freshness():
-    """월간 매크로 최신월(FRED 발표 기준) + 시장가격 최신일 → 데이터 최신성 배지용."""
+    """월간 매크로·시장 최신일과 코어 입력 중 가장 오래된 관측일."""
     with SessionLocal() as s:
-        mac = s.execute(
-            select(func.max(MacroSeries.obs_date))
-            .where(MacroSeries.series_id.in_(_MONTHLY_MACRO))).scalar()
+        mac_rows = s.execute(
+            select(MacroSeries.series_id, func.max(MacroSeries.obs_date))
+            .where(MacroSeries.series_id.in_(_MONTHLY_MACRO))
+            .group_by(MacroSeries.series_id)).all()
+        mac = max((r[1] for r in mac_rows if r[1]), default=None)
         prc = s.execute(select(func.max(MarketPrice.obs_date))).scalar()
+        core_ids = s.execute(
+            select(IndicatorMeta.id).where(IndicatorMeta.is_core.is_(True), IndicatorMeta.axis.in_(AXIS_KR))
+        ).scalars().all()
+        core_rows = s.execute(
+            select(MacroSeries.series_id, func.max(MacroSeries.obs_date))
+            .where(MacroSeries.series_id.in_(core_ids)).group_by(MacroSeries.series_id)
+        ).all()
     # 월간 지표는 해당 월 데이터 → "YYYY년 M월" 표기
     mac_kr = f"{mac.year}년 {mac.month}월" if mac else "—"
     prc_kr = f"{prc.month}/{prc.day}" if prc else "—"
-    return mac_kr, prc_kr
+    oldest = min((d for _, d in core_rows if d), default=None)
+    return mac_kr, prc_kr, oldest.isoformat() if oldest else "—"
 
 
 def build(out_path=None):
@@ -799,11 +861,12 @@ def build(out_path=None):
         prov_note = ""
 
     # 데이터 최신성(오해 방지): 국면은 월간 매크로 발표 주기에 묶임 / 시장가는 매주 갱신
-    _mac_kr, _prc_kr = _data_freshness()
+    _mac_kr, _prc_kr, _oldest_core = _data_freshness()
     freshness = (
         '<div class="fresh">📊 <b>월간 지표</b> {mac}까지 (FRED 최신 발표) · '
-        '<b>시장가격</b> {prc} 갱신<span class="mobhide"> · 국면 날짜는 월간 지표 발표 주기를 따릅니다</span></div>'
-    ).format(mac=_mac_kr, prc=_prc_kr)
+        '<b>시장가격</b> {prc} 갱신 · <b>코어 입력 최저 관측일</b> {oldest}'
+        '<span class="mobhide"> · 국면 날짜는 월간 지표 발표 주기를 따릅니다</span></div>'
+    ).format(mac=_mac_kr, prc=_prc_kr, oldest=_oldest_core)
 
     # 영상 슬라이드 이미지 (상대경로 — 프로젝트 루트)
     imgs = [("경기 국면 판단 기준 + 4국면 흐름", "../IMG_2127.PNG"),
