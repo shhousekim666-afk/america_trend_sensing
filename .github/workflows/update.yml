@@ -32,6 +32,8 @@ jobs:
         run: python -m pytest tests/ -q
       - name: Run pipeline (collect → regime → recommend → report)
         working-directory: pipeline
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python -m ats.cli update
       - name: Commit refreshed dashboard back to repo   # git 으로 봐도 최신 유지
         run: |

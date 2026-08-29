@@ -19,6 +19,7 @@ from .db import SessionLocal
 from .models import (IndicatorMeta, MacroSeries, MarketPrice, Recommendation,
                      RegimeSnapshot, SP500Constituent, TEHeadline)
 from .regime import KOR, current_regime, evaluate, explain_current, provisional_tail
+from .pit import run_pit
 from .strategy import backtest_strategy
 
 GICS_KR = {"Information Technology": "정보기술", "Communication Services": "커뮤니케이션",
@@ -191,7 +192,11 @@ def _gather():
         strategy = backtest_strategy()
     except Exception as exc:
         strategy = {"error": f"전략 백테스트 실패: {type(exc).__name__}"}
-    valid = {"nber": nber, "strategy": strategy}
+    try:
+        pit = run_pit()
+    except Exception as exc:
+        pit = {"error": f"PIT 검증 실행 실패: {type(exc).__name__}"}
+    valid = {"nber": nber, "strategy": strategy, "pit": pit}
     return reg, timeline, rec_by, te_list, sectors, indicators, uni, stocks_detail, explain, valid
 
 
@@ -664,6 +669,31 @@ def _performance_analysis(bt):
 </div>"""
 
 
+def _pit_card(pit):
+    """PIT 결과를 실행 시점 데이터로 표시하고, 키가 없으면 상태를 명확히 알린다."""
+    if not pit or pit.get("error"):
+        detail = (pit or {}).get("error", "실행 결과 없음")
+        return (f'<div class="card" style="border-color:#f59e0b55"><h4>⚠ PIT(발표시점) 무편향 검증</h4>'
+                f'<p class="cap" style="margin:0">현재 자동 실행 결과: <b>{detail}</b> '
+                '고정된 과거 수치를 현재 검증 결과처럼 표시하지 않습니다. FRED_API_KEY를 GitHub Actions secret으로 등록하면 갱신됩니다.</p></div>')
+
+    def ev(e):
+        return (f"{e.get('precision', 0):.2f} / {e.get('recall', 0):.2f} / "
+                f"{e.get('f1', 0):.2f} / {e.get('whipsaw_smoothed', 0):.3f}")
+
+    def strat(d):
+        x = d.get("basket", {})
+        return (f"{x.get('cagr', 0) * 100:.1f}% / {x.get('mdd', 0) * 100:.0f}% / "
+                f"{x.get('sharpe', 0):.2f}") if x else "—"
+
+    return f'''<div class="card" style="border-color:#f59e0b55"><h4>⚠ PIT(발표시점) 무편향 검증 — 자동 실행 결과</h4>
+<p class="cap" style="margin:0 0 8px">ALFRED vintage로 각 결정월에 실제로 알려진 값만 사용한 검증입니다. 실행시각 <b>{pit.get("run_at", "—")}</b> · 결정월 {pit.get("pit_months", "—")}개</p>
+<div class="tbl-wrap"><table><tr><th>기준</th><th>Precision / Recall / F1 / 휘프소</th><th>공격형 CAGR / MDD / Sharpe</th></tr>
+<tr style="color:#f59e0b;font-weight:700"><td>발표시점(PIT)</td><td>{ev(pit.get("pit_eval", {}))}</td><td>{strat(pit.get("pit_strategy", {}))}</td></tr>
+<tr><td>개정(현재)</td><td>{ev(pit.get("rev_eval", {}))}</td><td>{strat(pit.get("rev_strategy", {}))}</td></tr></table></div>
+<p class="cap" style="margin-top:8px">PIT 결과는 발표 지연과 개정의 영향을 포함합니다. 수익·위험은 과거 결과이며 미래를 보장하지 않습니다.</p></div>'''
+
+
 def _validation_tab(valid, reg=None, uni=None):
     """검증 탭: NBER 정량검증 + 전략 백테스트(자산곡선·지표)."""
     nber = valid.get("nber", {})
@@ -728,21 +758,7 @@ def _validation_tab(valid, reg=None, uni=None):
         '즉 엣지의 약 절반은 트렌드팔로잉 성격이며 순수 매크로 알파는 제한적이다. '
         '주가는 정당한 선행지표지만(모든 인베스트먼트 클락이 시장신호 사용), 이 도구의 우위를 "매크로 예측력"으로 과신하면 안 된다.</p></div>')
 
-    pit_card = (
-        '<div class="card" style="border-color:#f59e0b55"><h4>⚠ PIT(발표시점) 무편향 검증 — 마지막 검증 결과</h4>'
-        '<p class="cap" style="margin:0 0 8px">가장 큰 방법론적 숙제였던 <b>발표시점(point-in-time) 백테스트</b> 구현·수행. '
-        'ALFRED 아카이브로 <b>각 시점에 실제로 알려져 있던 vintage 값</b>만 써서 국면 재구성. '
-        '공정 비교 위해 <b>발표시점·개정 두 경로를 완전히 동일한 실시간 재구성 방식</b>으로 만들어 값만 다르게 함(2006~, 248개월, 침체 2회):</p>'
-        '<div class="tbl-wrap"><table>'
-        '<tr><th>기준</th><th>Precision</th><th>Recall</th><th>F1</th><th>공격형 CAGR/MDD/Sharpe</th><th>휘프소</th></tr>'
-        '<tr style="color:#f59e0b;font-weight:700"><td>발표시점(PIT)</td><td>0.35</td><td>0.35</td><td>0.35</td><td>9.5% / −46% / 0.59</td><td>0.097</td></tr>'
-        '<tr><td>개정(현재)</td><td>0.39</td><td>0.45</td><td>0.42</td><td>9.4% / −44% / 0.57</td><td>0.052</td></tr>'
-        '</table></div>'
-        '<p class="cap" style="margin-top:8px"><b>결론(정직):</b> '
-        '① <b>침체 탐지는 실시간에서 확실히 나빠진다</b>(recall 0.45→0.35) — look-ahead 편향이 실재하며, 실시간엔 침체를 더 늦게 잡는다. '
-        '② <b>전략 수익은 vintage에 견고</b>(공격형 9.4↔9.5%) — 엣지가 비개정 시장·선행축에 실려 있어서다. '
-        '③ <b>단, 엄격한 실시간 타이밍의 MDD는 −44~46%</b>로, 위 헤드라인 백테스트(−28%, 단순 1M-lag 근사)보다 <b>훨씬 깊다</b> — 실시간 방어는 더 느리다. '
-        '<span class="sub">(마지막 실행 결과: 2026-08. 위 표는 2006+ 실시간 재구성 기준이라 상단 헤드라인(2000+, 단순 lag)과 수치가 다름. FRED_API_KEY가 있는 환경에서 `cli pit`를 다시 실행해야 갱신됩니다.)</span></p></div>')
+    pit_card = _pit_card(valid.get("pit", {}))
 
     # ── 적립식(DCA) 비교 ──
     dca = bt.get("dca", {}) if bt else {}

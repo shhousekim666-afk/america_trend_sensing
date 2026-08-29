@@ -8,6 +8,7 @@
 - 국면 분류/평활/검증/백테스트는 기존 엔진을 그대로 재사용(monthly/hist 주입)
 """
 import pandas as pd
+from datetime import datetime, timezone
 
 from .config import load_indicators
 from .db import SessionLocal
@@ -109,6 +110,7 @@ def run_pit(start: str = "2006-01-01") -> dict:
     if pit.empty or rev.empty:
         return {"error": "PIT 재구성 실패(vintage 데이터 없음)"}
     return {
+        "run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "pit_months": int(len(pit)),
         "rev_months": int(len(rev)),
         "pit_eval": evaluate(hist=pit),
